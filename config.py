@@ -20,7 +20,10 @@ class Config(BaseModel):
     token_budget: int = 50_000
 
     # Search (Tavily)
-    tavily_api_key: str | None = None
+    tavily_api_key: str
+    max_results_per_term: int = 5
+    include_domains: list[str] = []
+    exclude_domains: list[str] = []
 
     # Domain
     domain_description: str
@@ -29,6 +32,9 @@ class Config(BaseModel):
     # Dedup (Phase 2)
     dedup_title_similarity: float = 0.6
     dedup_snippet_similarity: float = 0.8
+
+    # Content
+    max_article_chars: int = 6000
 
     # Output
     output_dir: str = "output"
@@ -39,6 +45,13 @@ class Config(BaseModel):
     def token_budget_must_be_positive(cls, v: int) -> int:
         if v <= 0:
             raise ValueError(f"TOKEN_BUDGET must be a positive integer, got {v}")
+        return v
+
+    @field_validator("max_article_chars")
+    @classmethod
+    def max_article_chars_must_be_positive(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError(f"MAX_ARTICLE_CHARS must be a positive integer, got {v}")
         return v
 
     @field_validator("dedup_title_similarity", "dedup_snippet_similarity")
@@ -78,6 +91,7 @@ def load_config(env_path: str | None = None) -> Config:
     # Check required keys with clear error messages
     required_keys = {
         "ANTHROPIC_API_KEY": "Your Anthropic API key (starts with sk-ant-...)",
+        "TAVILY_API_KEY": "Your Tavily API key (starts with tvly-...)",
         "DOMAIN_DESCRIPTION": "A description of the product domain to research",
         "SEARCH_TERMS": "Comma-separated list of search terms",
     }
@@ -98,20 +112,30 @@ def load_config(env_path: str | None = None) -> Config:
             + "\n\nCopy .env.example to .env and fill in the values."
         )
 
-    # Parse search terms from comma-separated string
+    # Parse comma-separated list values
     raw_terms = os.getenv("SEARCH_TERMS", "")
     search_terms = [t.strip() for t in raw_terms.split(",") if t.strip()]
+
+    raw_include = os.getenv("INCLUDE_DOMAINS", "")
+    include_domains = [d.strip() for d in raw_include.split(",") if d.strip()]
+
+    raw_exclude = os.getenv("EXCLUDE_DOMAINS", "")
+    exclude_domains = [d.strip() for d in raw_exclude.split(",") if d.strip()]
 
     # Build config
     config = Config(
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
         model=os.getenv("MODEL", "claude-sonnet-4-6"),
         token_budget=int(os.getenv("TOKEN_BUDGET", "50000")),
-        tavily_api_key=os.getenv("TAVILY_API_KEY") or None,
+        tavily_api_key=os.getenv("TAVILY_API_KEY", ""),
+        max_results_per_term=int(os.getenv("MAX_RESULTS_PER_TERM", "5")),
+        include_domains=include_domains,
+        exclude_domains=exclude_domains,
         domain_description=os.getenv("DOMAIN_DESCRIPTION", ""),
         search_terms=search_terms,
         dedup_title_similarity=float(os.getenv("DEDUP_TITLE_SIMILARITY", "0.6")),
         dedup_snippet_similarity=float(os.getenv("DEDUP_SNIPPET_SIMILARITY", "0.8")),
+        max_article_chars=int(os.getenv("MAX_ARTICLE_CHARS", "6000")),
         output_dir=os.getenv("OUTPUT_DIR", "output"),
         log_dir=os.getenv("LOG_DIR", "logs"),
     )

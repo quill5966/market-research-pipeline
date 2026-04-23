@@ -36,3 +36,25 @@ class RunLog(BaseModel):
     budget_remaining: int
     started_at: datetime
     completed_at: datetime | None = None
+
+
+class SearchResult(BaseModel):
+    """A single search result from Tavily."""
+
+    title: str
+    url: str
+    snippet: str  # Tavily 'content' field
+    raw_content: str | None = None  # Full article text (None if extraction failed)
+    score: float  # Tavily relevance score (0-1)
+    source_domain: str  # Extracted from URL (e.g., "reuters.com")
+    search_term: str  # Which search term produced this result
+
+
+class DedupStats(BaseModel):
+    """Statistics from the deduplication pipeline."""
+
+    raw_count: int
+    after_url_dedup: int
+    after_domain_title_dedup: int
+    after_snippet_dedup: int
+    removed_total: int

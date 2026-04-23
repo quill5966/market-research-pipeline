@@ -14,6 +14,8 @@ from datetime import datetime
 from config import load_config
 from tracking.token_tracker import TokenTracker
 from agent.client import AgentClient
+from services.search import search
+from services.dedup import deduplicate
 
 
 def generate_run_id(domain: str) -> str:
@@ -44,37 +46,43 @@ def main():
         log_dir=config.log_dir,
     )
 
-    # Initialize LLM client
+    # Initialize LLM client (used in Phase 3)
     client = AgentClient(config=config, tracker=tracker)
 
-    # Phase 1: Test call to verify foundation
-    print(f"🚀 PM News Agent — Phase 1 Foundation Test")
+    print(f"🚀 PM News Agent — Run: {run_id}")
     print(f"   Domain: {config.domain_description}")
+    print(f"   Search terms: {', '.join(config.search_terms)}")
     print(f"   Model:  {config.model}")
     print(f"   Budget: {config.token_budget:,} input tokens")
     print()
 
-    response = client.call(
-        step_name="test_call",
-        system="You are a helpful assistant.",
-        messages=[
-            {
-                "role": "user",
-                "content": "Say 'Phase 1 foundation is working.' in exactly those words.",
-            }
-        ],
-        max_tokens=50,
+    # --- Phase 2: Search & Dedup ---
+    raw_results = search(config)
+    print()
+
+    deduped, stats = deduplicate(
+        raw_results,
+        title_threshold=config.dedup_title_similarity,
+        snippet_threshold=config.dedup_snippet_similarity,
     )
-    print(f"✅ LLM Response: {response}")
+
+    # Show deduped results summary
+    print(f"\n📊 Final: {len(deduped)} articles ready for processing")
+    content_count = sum(1 for r in deduped if r.raw_content)
+    print(f"   {content_count} with full article content, {len(deduped) - content_count} snippet-only")
+
+    for i, r in enumerate(deduped, 1):
+        content_status = "✅" if r.raw_content else "⚠️ no content"
+        print(f"   {i:2d}. [{r.source_domain}] {r.title[:70]} ({content_status})")
+
+    # TODO Phase 3: Grouping, Extraction, Synthesis
+    # TODO Phase 4: Formatter, CLI, polish
 
     # Save logs
     log_path = tracker.save()
     tracker.print_summary()
 
-    # TODO Phase 2: Search + Dedup
-    # TODO Phase 3: Grouping, Extraction, Synthesis
-    # TODO Phase 4: Formatter, CLI, polish
-
 
 if __name__ == "__main__":
     main()
+

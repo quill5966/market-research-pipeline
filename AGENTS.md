@@ -33,6 +33,9 @@ market-research-pipeline/
 ├── agent/
 │   ├── client.py           # Anthropic SDK wrapper with token budget enforcement
 │   └── json_utils.py       # Parses JSON from LLM output (strips code fences, etc.)
+├── services/
+│   ├── search.py           # Tavily advanced search wrapper
+│   └── dedup.py            # URL + title + snippet deduplication
 ├── tracking/
 │   └── token_tracker.py    # Per-step token usage + cost logging → JSON
 ├── output/                 # Generated briefs land here (gitignored)
@@ -42,9 +45,6 @@ market-research-pipeline/
 ### Planned directories (not yet implemented)
 
 ```
-├── services/
-│   ├── search.py           # Tavily search wrapper
-│   └── dedup.py            # URL + snippet deduplication
 ├── agent/
 │   ├── grouper.py          # LLM: group search results by story
 │   ├── extractor.py        # LLM: per-article structured extraction
@@ -63,7 +63,7 @@ market-research-pipeline/
 | Phase | Status | What it covers |
 |-------|--------|----------------|
 | **Phase 1: Foundation** | ✅ Complete | Config, token tracker, LLM client wrapper, data models |
-| **Phase 2: Search & Dedup** | 🔲 Not started | Tavily search, URL/snippet deduplication |
+| **Phase 2: Search & Dedup** | ✅ Complete | Tavily search, URL/title/snippet deduplication |
 | **Phase 3: Agent Steps** | 🔲 Not started | Grouping, extraction, synthesis LLM steps |
 | **Phase 4: Output & Polish** | 🔲 Not started | Markdown formatter, CLI, run summaries |
 
@@ -89,9 +89,10 @@ Pipeline (main.py orchestrates):
 
 ### Config
 - **`config.py`** loads `.env.local` first, falls back to `.env`. Pass explicit path to override.
-- Required keys: `ANTHROPIC_API_KEY`, `DOMAIN_DESCRIPTION`, `SEARCH_TERMS`.
-- Pydantic validators enforce types and ranges (e.g., `TOKEN_BUDGET > 0`, similarity thresholds in `[0, 1]`).
+- Required keys: `ANTHROPIC_API_KEY`, `TAVILY_API_KEY`, `DOMAIN_DESCRIPTION`, `SEARCH_TERMS`.
+- Pydantic validators enforce types and ranges (e.g., `TOKEN_BUDGET > 0`, similarity thresholds in `[0, 1]`, `MAX_ARTICLE_CHARS > 0`).
 - `output/` and `logs/` directories are auto-created on config load.
+- `INCLUDE_DOMAINS` / `EXCLUDE_DOMAINS`: comma-separated lists for Tavily domain filtering. Configurable per-user in `.env.local`.
 
 ### LLM Calls
 - **All LLM calls go through `AgentClient.call()`** — never call `anthropic.Anthropic()` directly.
@@ -117,14 +118,22 @@ Pipeline (main.py orchestrates):
 - All shared data structures are Pydantic models in `models.py`.
 - `StepUsage`: per-LLM-call token/cost record.
 - `RunLog`: full run summary with all steps, written to JSON via `.model_dump_json()`.
+- `SearchResult`: normalized Tavily search result with `title`, `url`, `snippet`, `raw_content`, `score`, `source_domain`, `search_term`.
+- `DedupStats`: removal counts per dedup stage.
 
-## Search (Phase 2 — Not Yet Implemented)
-
-Decision: **Tavily advanced search** with `search_depth="advanced"` and `include_raw_content=True`.
+### Search (Phase 2)
+- **Tavily advanced search** with `search_depth="advanced"`, `topic="news"`, `time_range="week"`, `include_raw_content=True`.
 - One API call per search term, results combined.
-- Returns `title`, `url`, `content` (snippet), `raw_content` (full article text), `score`.
-- `raw_content` eliminates the need for a separate fetcher/scraper service.
-- Dedup operates on snippets/titles/URLs — before `raw_content` is used downstream.
+- Domain filtering via `include_domains` / `exclude_domains` config.
+- `raw_content` is truncated to `MAX_ARTICLE_CHARS` (default 6,000).
+- Results with no `raw_content` (extraction failures) are kept but flagged — downstream steps skip them.
+
+### Dedup (Phase 2)
+- Three-stage pipeline: exact URL → domain-title clustering → cross-domain snippet similarity.
+- URL normalization strips trailing slashes, `utm_*` params, and fragments.
+- Word-overlap (Jaccard) similarity for title and snippet comparisons.
+- Tavily `score` used as proxy for source authority in tie-breaking.
+- Configurable thresholds: `DEDUP_TITLE_SIMILARITY` (0.6), `DEDUP_SNIPPET_SIMILARITY` (0.8).
 
 ## Running the Project
 

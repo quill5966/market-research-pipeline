@@ -10,10 +10,14 @@ Orchestrates the full market research pipeline:
 
 import re
 from datetime import datetime
+from pathlib import Path
 
 from config import load_config
 from tracking.token_tracker import TokenTracker
-from agent.client import AgentClient
+from agent.client import AgentClient, TokenBudgetExceeded
+from agent.grouper import group_results
+from agent.extractor import extract_articles
+from agent.synthesizer import synthesize_brief
 from services.search import search
 from services.dedup import deduplicate
 
@@ -46,7 +50,7 @@ def main():
         log_dir=config.log_dir,
     )
 
-    # Initialize LLM client (used in Phase 3)
+    # Initialize LLM client
     client = AgentClient(config=config, tracker=tracker)
 
     print(f"🚀 PM News Agent — Run: {run_id}")
@@ -75,7 +79,32 @@ def main():
         content_status = "✅" if r.raw_content else "⚠️ no content"
         print(f"   {i:2d}. [{r.source_domain}] {r.title[:70]} ({content_status})")
 
-    # TODO Phase 3: Grouping, Extraction, Synthesis
+    # --- Phase 3: Grouping, Extraction, Synthesis ---
+    print()
+
+    # Step 3: Group results by story, select best sources
+    grouping_result = group_results(client, deduped, config.domain_description)
+
+    # Step 5: Extract structured notes from each selected article
+    notes = extract_articles(client, grouping_result, deduped, config.domain_description)
+
+    if not notes:
+        print("\n⚠️  No extraction notes produced — cannot synthesize brief.")
+    else:
+        # Step 6: Synthesize PM brief from extraction notes
+        run_date = datetime.now().strftime("%Y-%m-%d")
+        try:
+            brief = synthesize_brief(client, notes, config.domain_description, run_date)
+
+            if brief:
+                # Write brief to output/
+                output_path = Path(config.output_dir) / f"{run_id}.md"
+                output_path.write_text(brief)
+                print(f"\n✅ Brief written to {output_path}")
+        except TokenBudgetExceeded as e:
+            print(f"\n⚠️  Token budget exceeded during synthesis: {e}")
+            print("   Extraction notes were collected but brief could not be generated.")
+
     # TODO Phase 4: Formatter, CLI, polish
 
     # Save logs
@@ -85,4 +114,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 

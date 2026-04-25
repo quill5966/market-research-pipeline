@@ -58,3 +58,47 @@ class DedupStats(BaseModel):
     after_domain_title_dedup: int
     after_snippet_dedup: int
     removed_total: int
+
+
+# --- Phase 3: Agent Step Models ---
+
+
+class GroupedStory(BaseModel):
+    """A group of related search results identified by the grouper."""
+
+    group_label: str  # Human-readable story label
+    selected_url: str  # Best source URL to process
+    selected_title: str  # Title of the selected source
+    rationale: str  # Why this source was chosen
+    related_urls: list[str] = []  # Other URLs in this group (not processed)
+
+
+class GroupingResult(BaseModel):
+    """Full output from the grouping step."""
+
+    groups: list[GroupedStory]
+    discarded_count: int  # Number of results deemed irrelevant
+
+
+class ThematicTag(BaseModel):
+    """Category-specific extraction details."""
+
+    category: str  # e.g., "competitor_moves", "market_macro"
+    details: str  # Category-specific details
+
+
+class ExtractionNote(BaseModel):
+    """Structured extraction from a single article."""
+
+    headline: str
+    source: str
+    source_url: str
+    date: str | None = None
+    author: str | None = None
+    what_happened: str  # 3-5 sentence summary of core facts
+    data_points: list[str]  # Specific numbers, dates, percentages
+    quotes: list[str]  # Direct quotes with attribution
+    companies_and_products: list[str]  # With context for each
+    thematic_tags: list[ThematicTag]
+    pm_relevant_gaps: list[str]
+    group_label: str  # From the grouping step (for synthesis cross-ref)

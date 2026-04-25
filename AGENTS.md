@@ -28,11 +28,21 @@ market-research-pipeline/
 ├── CLAUDE.md               # Points to AGENTS.md
 ├── pm-news-agent-mvp-plan.md # Full MVP specification
 ├── config.py               # Config loading + Pydantic validation
-├── models.py               # Shared data models (StepUsage, RunLog)
+├── models.py               # Shared data models (StepUsage, RunLog, agent step models)
 ├── main.py                 # Pipeline orchestrator (entry point)
 ├── agent/
 │   ├── client.py           # Anthropic SDK wrapper with token budget enforcement
-│   └── json_utils.py       # Parses JSON from LLM output (strips code fences, etc.)
+│   ├── json_utils.py       # Parses JSON from LLM output (strips code fences, etc.)
+│   ├── grouper.py          # LLM: group search results by story
+│   ├── extractor.py        # LLM: per-article structured extraction
+│   └── synthesizer.py      # LLM: generate PM brief from extraction notes
+├── prompts/
+│   ├── system.py           # Base system prompt with domain context
+│   ├── grouping.py         # Prompt for snippet grouping step
+│   ├── extraction.py       # Prompt for article extraction step
+│   └── synthesis.py        # Prompt for final brief generation
+├── templates/
+│   └── pm_brief.py         # Brief template definition
 ├── services/
 │   ├── search.py           # Tavily advanced search wrapper
 │   └── dedup.py            # URL + title + snippet deduplication
@@ -42,29 +52,13 @@ market-research-pipeline/
 └── logs/                   # Token usage JSON logs per run (gitignored)
 ```
 
-### Planned directories (not yet implemented)
-
-```
-├── agent/
-│   ├── grouper.py          # LLM: group search results by story
-│   ├── extractor.py        # LLM: per-article structured extraction
-│   └── synthesizer.py      # LLM: generate PM brief from extraction notes
-├── prompts/
-│   ├── system.py           # Base system prompt with domain context
-│   ├── grouping.py         # Prompt for snippet grouping step
-│   ├── extraction.py       # Prompt for article extraction step
-│   └── synthesis.py        # Prompt for final brief generation
-└── templates/
-    └── pm_brief.py         # Brief template definition
-```
-
 ## Implementation Status
 
 | Phase | Status | What it covers |
 |-------|--------|----------------|
 | **Phase 1: Foundation** | ✅ Complete | Config, token tracker, LLM client wrapper, data models |
 | **Phase 2: Search & Dedup** | ✅ Complete | Tavily search, URL/title/snippet deduplication |
-| **Phase 3: Agent Steps** | 🔲 Not started | Grouping, extraction, synthesis LLM steps |
+| **Phase 3: Agent Steps** | ✅ Complete | Grouping, extraction, synthesis LLM steps |
 | **Phase 4: Output & Polish** | 🔲 Not started | Markdown formatter, CLI, run summaries |
 
 ## Architecture & Data Flow
@@ -134,6 +128,14 @@ Pipeline (main.py orchestrates):
 - Word-overlap (Jaccard) similarity for title and snippet comparisons.
 - Tavily `score` used as proxy for source authority in tie-breaking.
 - Configurable thresholds: `DEDUP_TITLE_SIMILARITY` (0.6), `DEDUP_SNIPPET_SIMILARITY` (0.8).
+
+### Agent Steps (Phase 3)
+- **Prompt architecture:** System prompt (`prompts/system.py`) is shared across all steps, establishing the LLM's role for the configured domain. Each step has its own user message builder in `prompts/`.
+- **Data flow:** Grouping → Extraction → Synthesis. Each step produces structured output consumed by the next.
+- **Grouping (`agent/grouper.py`):** Filters out results with no `raw_content` before prompting. Groups by story, selects best source per group (max 15). Output: `GroupingResult` (validated via `parse_llm_json()`).
+- **Extraction (`agent/extractor.py`):** Processes articles one at a time (not batched) to keep context small. Each call gets a unique `step_name` (e.g., `extraction_1`). Gracefully skips on parse failure or `TokenBudgetExceeded` — returns partial results.
+- **Synthesis (`agent/synthesizer.py`):** Produces raw markdown (not JSON). Uses `max_tokens=4096`. Output is written directly to `output/{run_id}.md`.
+- **New data models in `models.py`:** `GroupedStory`, `GroupingResult`, `ThematicTag`, `ExtractionNote`.
 
 ## Running the Project
 

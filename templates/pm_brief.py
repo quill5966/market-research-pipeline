@@ -3,62 +3,85 @@
 Contains the template string that defines the structure and section
 headings for the final PM brief output. Injected into the synthesis
 prompt so the LLM knows the target format.
+
+Format philosophy: optimized for scanning. A reader should be able to
+skim the top of the brief in under a minute and know the most important
+items, read any single entry's TL;DR in ~10 seconds, and finish the
+entire brief in 5-10 minutes. Word caps are soft targets — readability
+beats hitting the cap exactly. Never abbreviate or truncate words to
+fit a cap; cut a clause or rewrite the sentence instead.
 """
 
 PM_BRIEF_TEMPLATE = """MARKET PULSE: [DOMAIN]
 Date: [run date]
 
+--- TOP 3 HIGHLIGHTS ---
+Three single-line bullets naming the three most consequential items
+this scan period. Each line: a short headline, an em-dash, a <12-word
+"why it matters" clause, then "→ see [Section name]". Order by PM
+impact, highest first.
+Example shape:
+1. [Headline] — [why it matters in <12 words] → see [Section]
+2. [Headline] — [why it matters in <12 words] → see [Section]
+3. [Headline] — [why it matters in <12 words] → see [Section]
+
 --- EXECUTIVE SUMMARY ---
-2-3 sentences. The single most important takeaway from this scan,
-written so a PM who reads nothing else still walks away informed.
+≤60 words total. Exactly two sentences:
+  - Sentence 1: name the single dominant theme of the scan period.
+  - Sentence 2: state its consequence for a PM in this domain.
+No lists, no semicolons, no parenthetical asides, no embedded clauses.
+This is a frame, not a digest — the Top 3 Highlights does the digesting.
 
 --- COMPETITOR MOVES ---
-New product launches, feature releases, pricing changes, partnerships,
-or strategic pivots by named competitors. Each entry should include:
-  - What happened (specific facts, dates, numbers)
-  - Which competitor and product
-  - Why it matters (direct implications for our positioning or roadmap)
-  - Source attribution
-Only include if supported by extracted material. Omit section if no
-competitor activity was found.
+Product launches, feature releases, pricing changes, partnerships, or
+strategic pivots by named competitors.
+
+For each entry, use this exact structure:
+  ### [Headline ≤10 words: name the actor + the move]
+  **TL;DR:** ≤25 words. What happened, including the single most
+  important number, date, or named entity. No hedging.
+  **PM angle:** ≤20 words. The implication for our positioning,
+  roadmap, or competitive stance.
+
+  [Optional supporting paragraph, ≤80 words. Include ONLY when there
+  is a non-obvious mechanism, quote, or detail that materially changes
+  how a PM should read the TL;DR. Most entries should not need this.]
+
+  *Source: domain.com — URL*
+
+Omit the section if no competitor activity was found.
 
 --- MARKET & MACRO TRENDS ---
-Broader forces shaping the domain: regulatory changes, shifts in buyer
-behavior, emerging technology standards, macroeconomic factors affecting
-the market (funding climate, M&A activity, enterprise spending trends).
-Focus on what's actionable — trends a PM could bring to a planning
-conversation. Source attribution for each claim.
-Only include if supported by extracted material. Omit section if nothing
-found.
+Regulatory changes, buyer-behavior shifts, emerging tech standards,
+macroeconomic factors. Same per-entry structure as Competitor Moves
+(headline / TL;DR / PM angle / optional ≤80-word paragraph / source).
+For PM angle in this section: is this a tailwind or headwind, and on
+what time horizon?
+Omit the section if nothing found.
 
 --- CUSTOMER & BUYER SIGNALS ---
-Changes in how buyers evaluate, purchase, or use products in this space:
-analyst reports, survey data, adoption metrics, public customer wins or
-losses by competitors, shifts in procurement criteria. Source attribution.
-Only include if supported by extracted material. Omit section if nothing
-found.
+Analyst reports, survey data, adoption metrics, public customer wins
+or losses, shifts in procurement criteria. Same per-entry structure.
+For PM angle: does this suggest shifting evaluation criteria we should
+respond to?
+Omit the section if nothing found.
 
 --- TECHNOLOGY & ECOSYSTEM ---
-Standards body decisions, open source project developments, platform
-changes by major ecosystem players (cloud providers, infrastructure
-vendors), integration or API announcements that affect the domain's
-technical landscape. Source attribution.
-Only include if supported by extracted material. Omit section if nothing
-found.
+Standards-body decisions, open source developments, platform changes,
+integration/API announcements. Same per-entry structure.
+For PM angle: integration opportunity or compatibility risk?
+Omit the section if nothing found.
 
 --- WATCHLIST ---
-Items that don't fit the above sections but a PM should be aware of:
-early-stage signals, rumors with credible sourcing, or open questions
-surfaced during extraction that warrant monitoring. Brief format —
-one or two sentences per item with source.
-Only include if material exists. Omit section if nothing found.
+Bulleted list. One line per item, ≤25 words each. Format:
+  - **[Topic]:** [the signal in <20 words] (*source: domain.com*)
+No prose blocks. No multi-sentence items. Omit the section if empty.
 
 --- PM ACTION ITEMS ---
-Specific, concrete next steps suggested by the material above. Not
-generic advice — each item should tie directly to something in the
-brief. Examples: "Review our pricing against [competitor]'s new tier
-announced on [date]" or "Flag [regulation] for legal review before
-Q3 planning." 2-5 items maximum.
+2-5 items. Each item: one imperative sentence, ≤20 words, ending with
+a parenthetical pointer to the section/entry that motivates it.
+Example: "Review our pricing against Acme's new tier (Competitor Moves: Acme launches Pro plan)."
+No generic advice — every item must trace to a specific entry above.
 
 --- SOURCES ---
 All URLs referenced in the brief, grouped by section.

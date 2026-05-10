@@ -44,21 +44,25 @@ SYNTHESIS INSTRUCTIONS:
 
 1. **Classification review:** Use the thematic classifications from the extraction notes as a starting point, but re-evaluate them. A single article may inform multiple sections. An article tagged as "competitor_moves" might also contain a "market_macro" insight buried in a quote. Read across all notes and assign material to sections based on your own judgment.
 
-2. **Cross-source narrative construction:** For each section that has supporting material, write a cohesive narrative that draws from multiple extractions where applicable. Do NOT list articles sequentially — weave their facts, data points, and quotes into a single analytical story. When two articles cover the same event, synthesize them into one entry, noting where they agree and where they add different details. When articles cover different events that form a pattern (e.g., three competitors all releasing similar features), call out the pattern explicitly.
+2. **Compressed entry structure (mandatory).** Each section entry must lead with a one-line **TL;DR:** (≤25 words) and a one-line **PM angle:** (≤20 words). After those two lines, include a supporting paragraph of ≤80 words ONLY when a non-obvious mechanism, quote, or detail materially changes how a PM should read the TL;DR. Most entries should NOT need the paragraph. Do not write multi-paragraph prose blocks. Cross-source synthesis still applies — when two articles cover the same event, fold them into a single entry — but compress the synthesis into the TL;DR/angle/optional-paragraph structure, not into expanded narrative.
 
-3. **Analytical overlay:** For each section entry, go beyond reporting what happened. Connect the information to what it means for a PM in {domain_description}:
-   - In Competitor Moves: how does this change the competitive landscape? Does it validate our direction or challenge it?
-   - In Market & Macro: is this a headwind or tailwind? What's the time horizon for impact?
-   - In Customer & Buyer: does this suggest shifting evaluation criteria we should respond to?
-   - In Technology & Ecosystem: does this create an integration opportunity or a compatibility risk?
+3. **Analytical overlay:** Every entry's PM angle must go beyond restating the fact. Connect to what it means for a PM in {domain_description}:
+   - Competitor Moves: how does this change our competitive position?
+   - Market & Macro: tailwind or headwind, and on what time horizon?
+   - Customer & Buyer: does this shift evaluation criteria we should respond to?
+   - Technology & Ecosystem: integration opportunity or compatibility risk?
+
+4. **Length discipline.** Word caps in the template are soft targets, not hard limits — going over by 10–20% is fine when the alternative is awkward writing. The full brief should read in 5–10 minutes (target: under 1,500 words total). If you are approaching a cap, cut adjectives, hedging, and framing language before cutting facts. Specificity (numbers, dates, named entities) survives; commentary gets trimmed. **Never** abbreviate or truncate words to fit a cap (e.g., do not write "vuln" for "vulnerability", "auth" for "authentication", "infra" for "infrastructure"). Use full words and complete sentences — drop a clause or rewrite the sentence instead. Standard initialisms that are domain-native (CVE, IAM, SSO, MFA, API) are fine.
 
 ADDITIONAL RULES:
-- Write the Executive Summary LAST, after all sections are complete. It should surface the single most consequential item from the entire brief.
-- PM Action Items must reference specific entries from the sections above. Each action item should name the section and the specific event or data point that motivates it. Generic advice like "monitor the competitive landscape" is NOT acceptable.
-- Surface PM-relevant gaps from the extraction notes in the Watchlist section when they represent meaningful blind spots.
-- Omit any section where the material is too vague or low-confidence to support a concrete narrative. An empty section is better than a speculative one.
-- You may add a section not in the template if you identify a theme that doesn't fit the predefined categories. Label these as "AGENT-IDENTIFIED" with a brief rationale for why it was added.
-- When multiple articles cover the same event, synthesize them into a single narrative entry rather than listing each separately.
+- Write the Top 3 Highlights and Executive Summary LAST, after all sections are complete.
+  - **Top 3 Highlights:** three single-line bullets naming the most consequential items this scan period. Each line ends with `→ see [Section name]` pointing to where it is detailed below. Order by PM impact.
+  - **Executive Summary:** ≤60 words, exactly two sentences. Sentence 1 names the dominant theme of the scan period; sentence 2 states its consequence for a PM. No semicolons, no parentheticals, no embedded lists. This is a frame, not a digest — the Top 3 Highlights does the digesting.
+- PM Action Items must reference specific entries from the sections above. Each item is one imperative sentence, ≤20 words, ending with a parenthetical pointer to the triggering section/entry. Generic advice like "monitor the competitive landscape" is NOT acceptable.
+- Watchlist must be a bulleted list, one line per item (≤25 words). No prose blocks.
+- Surface PM-relevant gaps from the extraction notes in the Watchlist when they represent meaningful blind spots.
+- Omit any section where the material is too vague or low-confidence to support a concrete entry. An empty section is better than a speculative one.
+- You may add a section not in the template if you identify a theme that doesn't fit the predefined categories. Label these as "AGENT-IDENTIFIED" with a brief rationale, and follow the same TL;DR/PM-angle structure.
 - Reference specific data points and quotes from the extractions to support claims.
 - Include source attribution (source domain + URL) for all factual claims.
 

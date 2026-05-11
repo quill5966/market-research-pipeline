@@ -33,3 +33,8 @@ export const DEFAULT_EXCLUDE_DOMAINS: string[] = [
   'seekingalpha.com',
   'medium.com',
 ];
+
+export const DEFAULT_MAX_RESULTS_PER_TERM = 5;
+export const DEFAULT_MAX_ARTICLE_CHARS = 6000;
+export const DEFAULT_DEDUP_TITLE_SIMILARITY = 0.6;
+export const DEFAULT_DEDUP_SNIPPET_SIMILARITY = 0.8;

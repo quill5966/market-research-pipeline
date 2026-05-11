@@ -10,10 +10,10 @@ export interface RunRequest {
   search_terms: string[];
   include_domains?: string[];
   exclude_domains?: string[];
-  max_results_per_term?: number;
-  max_article_chars?: number;
-  dedup_title_similarity?: number;
-  dedup_snippet_similarity?: number;
+  max_results_per_term: number;
+  max_article_chars: number;
+  dedup_title_similarity: number;
+  dedup_snippet_similarity: number;
 }
 
 export interface Stage {

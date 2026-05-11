@@ -20,13 +20,27 @@ interface NewRunScreenProps {
 export function NewRunScreen({ formState, onFormChange }: NewRunScreenProps) {
   const navigate = useNavigate();
 
-  const { domain, searchTerms, includeDomains, excludeDomains } = formState;
+  const {
+    domain,
+    searchTerms,
+    includeDomains,
+    excludeDomains,
+    maxResultsPerTerm,
+    maxArticleChars,
+    dedupTitleSimilarity,
+    dedupSnippetSimilarity,
+  } = formState;
   const setDomain = (v: string) => onFormChange({ ...formState, domain: v });
   const setSearchTerms = (v: string[]) => onFormChange({ ...formState, searchTerms: v });
   const setIncludeDomains = (v: string[]) => onFormChange({ ...formState, includeDomains: v });
   const setExcludeDomains = (v: string[]) => onFormChange({ ...formState, excludeDomains: v });
+  const setMaxResultsPerTerm = (v: string) => onFormChange({ ...formState, maxResultsPerTerm: v });
+  const setMaxArticleChars = (v: string) => onFormChange({ ...formState, maxArticleChars: v });
+  const setDedupTitleSimilarity = (v: string) => onFormChange({ ...formState, dedupTitleSimilarity: v });
+  const setDedupSnippetSimilarity = (v: string) => onFormChange({ ...formState, dedupSnippetSimilarity: v });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isValid = domain.trim().length >= 10 && searchTerms.length >= 1;
@@ -34,6 +48,31 @@ export function NewRunScreen({ formState, onFormChange }: NewRunScreenProps) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!isValid || isSubmitting) return;
+
+    const parsedMaxResults = Number(maxResultsPerTerm);
+    if (!Number.isInteger(parsedMaxResults) || parsedMaxResults < 1 || parsedMaxResults > 20) {
+      setError('Max results per term must be an integer between 1 and 20.');
+      setShowAdvanced(true);
+      return;
+    }
+    const parsedMaxChars = Number(maxArticleChars);
+    if (!Number.isInteger(parsedMaxChars) || parsedMaxChars < 500 || parsedMaxChars > 20000) {
+      setError('Max article chars must be an integer between 500 and 20000.');
+      setShowAdvanced(true);
+      return;
+    }
+    const parsedTitleSim = Number(dedupTitleSimilarity);
+    if (!Number.isFinite(parsedTitleSim) || parsedTitleSim < 0 || parsedTitleSim > 1) {
+      setError('Dedup title similarity must be a number between 0 and 1.');
+      setShowAdvanced(true);
+      return;
+    }
+    const parsedSnippetSim = Number(dedupSnippetSimilarity);
+    if (!Number.isFinite(parsedSnippetSim) || parsedSnippetSim < 0 || parsedSnippetSim > 1) {
+      setError('Dedup snippet similarity must be a number between 0 and 1.');
+      setShowAdvanced(true);
+      return;
+    }
 
     setIsSubmitting(true);
     setError(null);
@@ -44,6 +83,10 @@ export function NewRunScreen({ formState, onFormChange }: NewRunScreenProps) {
         search_terms: searchTerms,
         include_domains: includeDomains,
         exclude_domains: excludeDomains,
+        max_results_per_term: parsedMaxResults,
+        max_article_chars: parsedMaxChars,
+        dedup_title_similarity: parsedTitleSim,
+        dedup_snippet_similarity: parsedSnippetSim,
       });
       localStorage.setItem('lastRunId', result.id);
       navigate(`/runs/${result.id}`);
@@ -141,14 +184,91 @@ export function NewRunScreen({ formState, onFormChange }: NewRunScreenProps) {
             />
           </div>
 
+          {showAdvanced && (
+            <div className="advanced-panel">
+              <div className="field">
+                <div className="field-label">
+                  <span className="label-text">Max results per term</span>
+                </div>
+                <p className="field-help">
+                  Tavily results requested per search term.
+                </p>
+                <input
+                  type="number"
+                  className="field-input"
+                  min={1}
+                  max={20}
+                  step={1}
+                  value={maxResultsPerTerm}
+                  onChange={(e) => setMaxResultsPerTerm(e.target.value)}
+                />
+              </div>
+
+              <div className="field">
+                <div className="field-label">
+                  <span className="label-text">Max article chars</span>
+                </div>
+                <p className="field-help">
+                  Per-article content truncation before extraction.
+                </p>
+                <input
+                  type="number"
+                  className="field-input"
+                  min={500}
+                  max={20000}
+                  step={500}
+                  value={maxArticleChars}
+                  onChange={(e) => setMaxArticleChars(e.target.value)}
+                />
+              </div>
+
+              <div className="field">
+                <div className="field-label">
+                  <span className="label-text">Dedup title similarity</span>
+                </div>
+                <p className="field-help">
+                  Jaccard threshold for clustering by title within a domain (0–1).
+                </p>
+                <input
+                  type="number"
+                  className="field-input"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={dedupTitleSimilarity}
+                  onChange={(e) => setDedupTitleSimilarity(e.target.value)}
+                />
+              </div>
+
+              <div className="field">
+                <div className="field-label">
+                  <span className="label-text">Dedup snippet similarity</span>
+                </div>
+                <p className="field-help">
+                  Jaccard threshold for cross-domain snippet dedup (0–1).
+                </p>
+                <input
+                  type="number"
+                  className="field-input"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={dedupSnippetSimilarity}
+                  onChange={(e) => setDedupSnippetSimilarity(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="form-footer">
             <button
               type="button"
               className="btn btn-text"
-              disabled
-              title="Coming soon"
+              onClick={() => setShowAdvanced((v) => !v)}
+              aria-expanded={showAdvanced}
             >
-              <i className="ti ti-settings" /> Advanced options
+              <i className={`ti ${showAdvanced ? 'ti-chevron-up' : 'ti-chevron-down'}`} />{' '}
+              Advanced options
             </button>
             <button
               type="submit"

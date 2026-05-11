@@ -58,10 +58,10 @@ class RunConfig(BaseModel):
     search_terms: list[str]
     include_domains: list[str] = []
     exclude_domains: list[str] = []
-    max_results_per_term: int = 5
-    max_article_chars: int = 6000
-    dedup_title_similarity: float = 0.6
-    dedup_snippet_similarity: float = 0.8
+    max_results_per_term: int
+    max_article_chars: int
+    dedup_title_similarity: float
+    dedup_snippet_similarity: float
 
     @field_validator("max_article_chars")
     @classmethod

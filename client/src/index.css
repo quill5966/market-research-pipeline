@@ -228,6 +228,12 @@ body {
   box-shadow: 0 0 0 3px rgba(122, 36, 36, 0.08);
 }
 
+.advanced-panel {
+  border-top: 1px dashed var(--rule);
+  padding-top: 20px;
+  margin-top: 8px;
+}
+
 /* ── Pill Input ── */
 
 .pill-input {

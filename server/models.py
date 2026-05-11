@@ -129,11 +129,11 @@ class RunRequest(BaseModel):
     search_terms: list[str]  # required, 1-10 items
     include_domains: list[str] = []  # optional
     exclude_domains: list[str] = []  # optional
-    # Advanced options (v2 panel; sensible defaults for now):
-    max_results_per_term: int = 5
-    max_article_chars: int = 6000
-    dedup_title_similarity: float = 0.6
-    dedup_snippet_similarity: float = 0.8
+    # Advanced options — client is the source of truth, so these are required.
+    max_results_per_term: int
+    max_article_chars: int
+    dedup_title_similarity: float
+    dedup_snippet_similarity: float
     # Note: token_budget is NOT here — it's server config only
 
     @field_validator("domain_description")

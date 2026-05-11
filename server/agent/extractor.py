@@ -5,6 +5,8 @@ information with thematic classification. Handles budget exceeded
 and parse failures gracefully by skipping individual articles.
 """
 
+from collections.abc import Callable
+
 from agent.client import AgentClient, TokenBudgetExceeded
 from agent.json_utils import parse_llm_json
 from models import ExtractionNote, GroupingResult, SearchResult
@@ -17,6 +19,7 @@ def extract_articles(
     groups: GroupingResult,
     results: list[SearchResult],
     domain_description: str,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> list[ExtractionNote]:
     """Extract structured notes from each selected article.
 
@@ -29,6 +32,7 @@ def extract_articles(
         groups: GroupingResult from the grouping step.
         results: Deduped search results (used for URL→article lookup).
         domain_description: The product domain being researched.
+        progress_callback: Optional callback(completed, total) for progress updates.
 
     Returns:
         List of ExtractionNote objects (may be shorter than groups
@@ -91,6 +95,8 @@ def extract_articles(
             note = ExtractionNote(**parsed)
             notes.append(note)
             print(f"   📝 {i+1}/{total}: {note.headline[:60]}")
+            if progress_callback:
+                progress_callback(len(notes), total)
         except (ValueError, TypeError) as e:
             skipped_parse += 1
             print(f"   ❌ {i+1}/{total}: Parse failed for [{group.group_label}] — {e}")

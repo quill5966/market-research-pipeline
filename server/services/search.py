@@ -9,11 +9,11 @@ from urllib.parse import urlparse
 
 from tavily import TavilyClient
 
-from config import Config
+from config import RunConfig
 from models import SearchResult
 
 
-def search(config: Config) -> list[SearchResult]:
+def search(config: RunConfig) -> list[SearchResult]:
     """Run Tavily advanced search for all configured terms.
 
     Makes one API call per search term with topic="news",

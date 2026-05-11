@@ -1,9 +1,18 @@
 .DS_Store
-.env*
-!.env.example
 __pycache__/
 *.pyc
-output/
-logs/
-.venv/
+
+# Server
+server/.env*
+!server/.env.example
+server/output/
+server/logs/
+server/.venv/
+
+# Client
+client/node_modules/
+client/dist/
+client/.vite/
+
+# Mockups (reference only)
 mockups/

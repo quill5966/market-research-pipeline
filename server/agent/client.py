@@ -9,7 +9,7 @@ import time
 
 import anthropic
 
-from config import Config
+from config import RunConfig
 from tracking.token_tracker import TokenTracker
 
 
@@ -30,7 +30,7 @@ class TokenBudgetExceeded(Exception):
 class AgentClient:
     """Wrapper around Anthropic SDK with automatic token tracking."""
 
-    def __init__(self, config: Config, tracker: TokenTracker):
+    def __init__(self, config: RunConfig, tracker: TokenTracker):
         """Initialize the client.
 
         Args:

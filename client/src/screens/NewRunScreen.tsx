@@ -96,6 +96,14 @@ export function NewRunScreen({ formState, onFormChange }: NewRunScreenProps) {
               <span className="label-text">
                 Include domains <span className="optional">optional</span>
               </span>
+              <button
+                type="button"
+                className="btn-clear-all"
+                onClick={() => setIncludeDomains([])}
+                disabled={includeDomains.length === 0}
+              >
+                Clear all
+              </button>
             </div>
             <p className="field-help">
               Limit search to these domains. Leave empty to search all sources.
@@ -113,6 +121,14 @@ export function NewRunScreen({ formState, onFormChange }: NewRunScreenProps) {
               <span className="label-text">
                 Exclude domains <span className="optional">optional</span>
               </span>
+              <button
+                type="button"
+                className="btn-clear-all"
+                onClick={() => setExcludeDomains([])}
+                disabled={excludeDomains.length === 0}
+              >
+                Clear all
+              </button>
             </div>
             <p className="field-help">
               Exclude these domains from search results.

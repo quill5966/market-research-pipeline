@@ -11,6 +11,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { NewRunScreen } from './screens/NewRunScreen';
 import { PipelineScreen } from './screens/PipelineScreen';
 import { BriefScreen } from './screens/BriefScreen';
+import { DEFAULT_INCLUDE_DOMAINS, DEFAULT_EXCLUDE_DOMAINS } from './constants';
 
 export interface FormState {
   domain: string;
@@ -19,15 +20,15 @@ export interface FormState {
   excludeDomains: string[];
 }
 
-const EMPTY_FORM: FormState = {
+const INITIAL_FORM: FormState = {
   domain: '',
   searchTerms: [],
-  includeDomains: [],
-  excludeDomains: [],
+  includeDomains: DEFAULT_INCLUDE_DOMAINS,
+  excludeDomains: DEFAULT_EXCLUDE_DOMAINS,
 };
 
 export default function App() {
-  const [formState, setFormState] = useState<FormState>(EMPTY_FORM);
+  const [formState, setFormState] = useState<FormState>(INITIAL_FORM);
 
   return (
     <BrowserRouter>

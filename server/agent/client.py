@@ -91,12 +91,19 @@ class AgentClient:
         # Make the API call with rate limit retry
         response = self._call_with_retry(**kwargs)
 
-        # Record actual token usage
+        # Record actual token usage + stop_reason (so log captures truncation)
         self.tracker.record(
             step_name=step_name,
             input_tokens=response.usage.input_tokens,
             output_tokens=response.usage.output_tokens,
+            stop_reason=response.stop_reason,
         )
+
+        if response.stop_reason == "max_tokens":
+            print(
+                f"⚠️  Step '{step_name}' hit max_tokens cap ({max_tokens}); "
+                f"output was truncated — downstream parse or content may be incomplete."
+            )
 
         # Log a warning if actual usage pushed us over budget
         if self.tracker.total_input_tokens > self.tracker.token_budget:

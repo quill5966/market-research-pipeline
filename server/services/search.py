@@ -5,6 +5,7 @@ normalizes results into SearchResult models, and returns
 the combined (undeduped) result list.
 """
 
+from statistics import median
 from urllib.parse import urlparse
 
 from tavily import TavilyClient
@@ -28,6 +29,8 @@ def search(config: RunConfig) -> list[SearchResult]:
     """
     client = TavilyClient(api_key=config.tavily_api_key)
     all_results: list[SearchResult] = []
+    original_lengths: list[int] = []  # raw_content lengths before truncation
+    truncated_count = 0
 
     for term in config.search_terms:
         response = client.search(
@@ -54,9 +57,12 @@ def search(config: RunConfig) -> list[SearchResult]:
             # Normalize raw_content — treat empty string as None
             raw_content = r.get("raw_content") or None
 
-            # Truncate raw_content to configured limit
-            if raw_content and len(raw_content) > config.max_article_chars:
-                raw_content = raw_content[: config.max_article_chars]
+            # Track original length + truncation against config.max_article_chars
+            if raw_content:
+                original_lengths.append(len(raw_content))
+                if len(raw_content) > config.max_article_chars:
+                    raw_content = raw_content[: config.max_article_chars]
+                    truncated_count += 1
 
             result = SearchResult(
                 title=r.get("title", ""),
@@ -72,4 +78,16 @@ def search(config: RunConfig) -> list[SearchResult]:
         print(f"🔍 '{term}': {len(results)} results")
 
     print(f"\n📦 Total raw results: {len(all_results)}")
+
+    # Article-length summary — flags whether max_article_chars is biting on this run.
+    if original_lengths:
+        med_k = median(original_lengths) / 1000
+        max_k = max(original_lengths) / 1000
+        cap_k = config.max_article_chars / 1000
+        print(
+            f"📏 raw_content: {len(original_lengths)} articles with content · "
+            f"{truncated_count} truncated to {cap_k:.0f}k chars "
+            f"(originals: {med_k:.1f}k median, {max_k:.1f}k max)"
+        )
+
     return all_results

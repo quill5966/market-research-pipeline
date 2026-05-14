@@ -75,7 +75,11 @@ class TokenTracker:
         return input_cost, output_cost, input_cost + output_cost
 
     def record(
-        self, step_name: str, input_tokens: int, output_tokens: int
+        self,
+        step_name: str,
+        input_tokens: int,
+        output_tokens: int,
+        stop_reason: str | None = None,
     ) -> StepUsage:
         """Record usage for a completed step.
 
@@ -83,6 +87,7 @@ class TokenTracker:
             step_name: Identifier for this pipeline step.
             input_tokens: Number of input tokens consumed.
             output_tokens: Number of output tokens generated.
+            stop_reason: Anthropic API stop_reason (e.g., "end_turn", "max_tokens").
 
         Returns:
             The StepUsage object created.
@@ -99,6 +104,7 @@ class TokenTracker:
             output_cost_usd=output_cost,
             total_cost_usd=total_cost,
             timestamp=datetime.now(),
+            stop_reason=stop_reason,
         )
         self._steps.append(step)
         return step
@@ -177,11 +183,13 @@ class TokenTracker:
         print("───────────────────────────────────────────────────────")
 
         for step in self._steps:
+            marker = "  ⚠ max_tokens" if step.stop_reason == "max_tokens" else ""
             print(
                 f"  {step.step_name:<28} "
                 f"{step.input_tokens:>8,} "
                 f"{step.output_tokens:>8,} "
                 f"${step.total_cost_usd:>8.4f}"
+                f"{marker}"
             )
 
         print("───────────────────────────────────────────────────────")

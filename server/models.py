@@ -30,6 +30,7 @@ class StepUsage(BaseModel):
     output_cost_usd: float
     total_cost_usd: float
     timestamp: datetime
+    stop_reason: str | None = None  # Anthropic API stop_reason; "max_tokens" indicates output was truncated
 
 
 class RunLog(BaseModel):

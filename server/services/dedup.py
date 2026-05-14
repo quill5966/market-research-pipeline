@@ -11,7 +11,7 @@ Each stage logs removal counts for threshold tuning.
 import re
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
-from models import DedupStats, SearchResult
+from models import DedupStats, DiscardedArticle, SearchResult
 
 
 def deduplicate(
@@ -34,16 +34,16 @@ def deduplicate(
     raw_count = len(results)
 
     # Stage 1: Exact URL dedup
-    after_url = _dedup_exact_url(results)
-    url_removed = raw_count - len(after_url)
+    after_url, url_discards = _dedup_exact_url(results)
+    url_removed = len(url_discards)
 
     # Stage 2: Domain-title clustering
-    after_title = _dedup_domain_title(after_url, title_threshold)
-    title_removed = len(after_url) - len(after_title)
+    after_title, title_discards = _dedup_domain_title(after_url, title_threshold)
+    title_removed = len(title_discards)
 
     # Stage 3: Cross-domain snippet similarity
-    after_snippet = _dedup_snippet(after_title, snippet_threshold)
-    snippet_removed = len(after_title) - len(after_snippet)
+    after_snippet, snippet_discards = _dedup_snippet(after_title, snippet_threshold)
+    snippet_removed = len(snippet_discards)
 
     # Sort by score descending (best results first)
     after_snippet.sort(key=lambda r: r.score, reverse=True)
@@ -54,6 +54,7 @@ def deduplicate(
         after_domain_title_dedup=len(after_title),
         after_snippet_dedup=len(after_snippet),
         removed_total=raw_count - len(after_snippet),
+        discarded=url_discards + title_discards + snippet_discards,
     )
 
     print(
@@ -100,27 +101,39 @@ def _normalize_url(url: str) -> str:
     ))
 
 
-def _dedup_exact_url(results: list[SearchResult]) -> list[SearchResult]:
+def _dedup_exact_url(
+    results: list[SearchResult],
+) -> tuple[list[SearchResult], list[DiscardedArticle]]:
     """Stage 1: Remove results with identical normalized URLs.
 
     Keeps the first occurrence (typically highest-scored since
     Tavily returns results in relevance order).
     """
-    seen_urls: set[str] = set()
+    seen: dict[str, SearchResult] = {}
     deduped: list[SearchResult] = []
+    discards: list[DiscardedArticle] = []
 
     for r in results:
         normalized = _normalize_url(r.url)
-        if normalized not in seen_urls:
-            seen_urls.add(normalized)
+        winner = seen.get(normalized)
+        if winner is None:
+            seen[normalized] = r
             deduped.append(r)
+        else:
+            discards.append(DiscardedArticle(
+                url=r.url,
+                title=r.title,
+                stage="dedup_url",
+                reason="Duplicate normalized URL",
+                kept_in_favor_of=winner.url,
+            ))
 
-    return deduped
+    return deduped, discards
 
 
 def _dedup_domain_title(
     results: list[SearchResult], threshold: float
-) -> list[SearchResult]:
+) -> tuple[list[SearchResult], list[DiscardedArticle]]:
     """Stage 2: Within each domain, merge results with similar titles.
 
     Groups results by source_domain. Within each group, compares
@@ -133,6 +146,7 @@ def _dedup_domain_title(
         by_domain.setdefault(r.source_domain, []).append(r)
 
     deduped: list[SearchResult] = []
+    discards: list[DiscardedArticle] = []
 
     for domain, group in by_domain.items():
         if len(group) <= 1:
@@ -144,22 +158,36 @@ def _dedup_domain_title(
         keep: list[SearchResult] = []
 
         for candidate in group:
-            is_duplicate = False
+            duplicate_of: SearchResult | None = None
+            similarity = 0.0
             for kept in keep:
-                if _word_overlap(candidate.title, kept.title) >= threshold:
-                    is_duplicate = True
+                sim = _word_overlap(candidate.title, kept.title)
+                if sim >= threshold:
+                    duplicate_of = kept
+                    similarity = sim
                     break
-            if not is_duplicate:
+            if duplicate_of is None:
                 keep.append(candidate)
+            else:
+                discards.append(DiscardedArticle(
+                    url=candidate.url,
+                    title=candidate.title,
+                    stage="dedup_title",
+                    reason=(
+                        f"Title Jaccard {similarity:.2f} ≥ {threshold:.2f} "
+                        f"within domain {domain}"
+                    ),
+                    kept_in_favor_of=duplicate_of.url,
+                ))
 
         deduped.extend(keep)
 
-    return deduped
+    return deduped, discards
 
 
 def _dedup_snippet(
     results: list[SearchResult], threshold: float
-) -> list[SearchResult]:
+) -> tuple[list[SearchResult], list[DiscardedArticle]]:
     """Stage 3: Cross-domain snippet similarity.
 
     Compares snippets pairwise across different domains. If two
@@ -169,20 +197,36 @@ def _dedup_snippet(
     # Sort by score descending — higher-scored results are kept
     sorted_results = sorted(results, key=lambda r: r.score, reverse=True)
     keep: list[SearchResult] = []
+    discards: list[DiscardedArticle] = []
 
     for candidate in sorted_results:
-        is_duplicate = False
+        duplicate_of: SearchResult | None = None
+        similarity = 0.0
         for kept in keep:
             # Only compare across different domains
             if candidate.source_domain == kept.source_domain:
                 continue
-            if _word_overlap(candidate.snippet, kept.snippet) >= threshold:
-                is_duplicate = True
+            sim = _word_overlap(candidate.snippet, kept.snippet)
+            if sim >= threshold:
+                duplicate_of = kept
+                similarity = sim
                 break
-        if not is_duplicate:
+        if duplicate_of is None:
             keep.append(candidate)
+        else:
+            discards.append(DiscardedArticle(
+                url=candidate.url,
+                title=candidate.title,
+                stage="dedup_snippet",
+                reason=(
+                    f"Snippet Jaccard {similarity:.2f} ≥ {threshold:.2f} "
+                    f"across domains ({candidate.source_domain} vs "
+                    f"{duplicate_of.source_domain})"
+                ),
+                kept_in_favor_of=duplicate_of.url,
+            ))
 
-    return keep
+    return keep, discards
 
 
 def _word_overlap(text_a: str, text_b: str) -> float:

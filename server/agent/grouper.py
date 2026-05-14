@@ -7,7 +7,7 @@ source per group for extraction.
 
 from agent.client import AgentClient
 from agent.json_utils import parse_llm_json
-from models import GroupingResult, SearchResult
+from models import DiscardedArticle, GroupingResult, SearchResult
 from prompts.grouping import build_grouping_prompt
 from prompts.system import build_system_prompt
 
@@ -38,14 +38,23 @@ def group_results(
     """
     # Filter out results with no raw_content
     with_content = [r for r in results if r.raw_content]
-    dropped = len(results) - len(with_content)
+    no_content = [r for r in results if not r.raw_content]
+    no_content_discards = [
+        DiscardedArticle(
+            url=r.url,
+            title=r.title,
+            stage="group_no_content",
+            reason="No raw_content available from search; cannot extract.",
+        )
+        for r in no_content
+    ]
 
-    if dropped > 0:
-        print(f"🔍 Grouper: filtered out {dropped} results with no article content")
+    if no_content_discards:
+        print(f"🔍 Grouper: filtered out {len(no_content_discards)} results with no article content")
 
     if not with_content:
         print("⚠️  No results with article content available — skipping grouping.")
-        return GroupingResult(groups=[], discarded_count=len(results))
+        return GroupingResult(groups=[], discarded=no_content_discards)
 
     print(f"🔍 Grouper: processing {len(with_content)} results with article content...")
 
@@ -61,18 +70,38 @@ def group_results(
         max_tokens=2048,
     )
 
-    # Parse and validate
+    # Parse and validate. The LLM emits `discarded` as [{url, reason}], which
+    # lacks the title/stage required by DiscardedArticle — handle it separately
+    # before constructing GroupingResult.
     try:
         parsed = parse_llm_json(raw_response)
+        raw_discards = parsed.pop("discarded", []) or []
         result = GroupingResult(**parsed)
     except (ValueError, TypeError) as e:
         print(f"❌ Grouper: failed to parse LLM response")
         print(f"   Raw response preview: {raw_response[:300]}...")
         raise ValueError(f"Grouping step failed to parse LLM response: {e}") from e
 
+    # Enrich LLM-supplied discards with stage label and original title.
+    # The LLM only knows URLs; look up titles from the input set.
+    title_by_url = {r.url: r.title for r in with_content}
+    llm_discards: list[DiscardedArticle] = []
+    for d in raw_discards:
+        if not isinstance(d, dict) or not d.get("url"):
+            continue
+        url = d["url"]
+        llm_discards.append(DiscardedArticle(
+            url=url,
+            title=title_by_url.get(url, ""),
+            stage="group_llm_irrelevant",
+            reason=d.get("reason"),
+        ))
+    result.discarded = no_content_discards + llm_discards
+
     # Summary
     print(f"✅ Grouper: {len(result.groups)} story groups identified, "
-          f"{result.discarded_count} results discarded as irrelevant")
+          f"{len(result.discarded)} results discarded "
+          f"({len(no_content_discards)} no content, {len(llm_discards)} irrelevant)")
     for i, group in enumerate(result.groups, 1):
         print(f"   {i:2d}. [{group.group_label}] → {group.selected_title[:60]}")
 

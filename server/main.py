@@ -15,6 +15,7 @@ from pathlib import Path
 
 from config import RunConfig
 from tracking.token_tracker import TokenTracker
+from tracking.discard_log import write_discard_log
 from agent.client import AgentClient, TokenBudgetExceeded
 from agent.grouper import group_results
 from agent.extractor import extract_articles
@@ -115,6 +116,13 @@ def execute_pipeline(run: Run, config: RunConfig) -> None:
             run, "group", "done",
             f"{len(grouping_result.groups)} distinct stories identified",
             t0,
+        )
+
+        # Persist discard log (dedup + grouping) for post-hoc review.
+        write_discard_log(
+            pipeline_run_id=pipeline_run_id,
+            discards=stats.discarded + grouping_result.discarded,
+            log_dir=config.log_dir,
         )
 
         # --- Stage 4: Extract ---

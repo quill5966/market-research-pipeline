@@ -64,6 +64,22 @@ class SearchResult(BaseModel):
     search_term: str  # Which search term produced this result
 
 
+class DiscardedArticle(BaseModel):
+    """A search result that was dropped at some stage of the pipeline."""
+
+    url: str
+    title: str
+    stage: Literal[
+        "dedup_url",
+        "dedup_title",
+        "dedup_snippet",
+        "group_no_content",
+        "group_llm_irrelevant",
+    ]
+    reason: str | None = None
+    kept_in_favor_of: str | None = None  # winning URL for dedup stages
+
+
 class DedupStats(BaseModel):
     """Statistics from the deduplication pipeline."""
 
@@ -72,6 +88,7 @@ class DedupStats(BaseModel):
     after_domain_title_dedup: int
     after_snippet_dedup: int
     removed_total: int
+    discarded: list[DiscardedArticle] = []
 
 
 # --- Agent step models ---
@@ -91,7 +108,7 @@ class GroupingResult(BaseModel):
     """Full output from the grouping step."""
 
     groups: list[GroupedStory]
-    discarded_count: int  # Number of results deemed irrelevant
+    discarded: list[DiscardedArticle] = []
 
 
 class ThematicTag(BaseModel):

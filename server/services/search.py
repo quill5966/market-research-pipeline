@@ -61,8 +61,14 @@ def search(config: RunConfig) -> list[SearchResult]:
             if raw_content:
                 original_lengths.append(len(raw_content))
                 if len(raw_content) > config.max_article_chars:
+                    original_len = len(raw_content)
                     raw_content = raw_content[: config.max_article_chars]
                     truncated_count += 1
+                    print(
+                        f"✂  Truncated: {r.get('url', '')} — "
+                        f"\"{r.get('title', '')}\" "
+                        f"({original_len:,} → {config.max_article_chars:,} chars)"
+                    )
 
             result = SearchResult(
                 title=r.get("title", ""),

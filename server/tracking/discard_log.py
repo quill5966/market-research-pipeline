@@ -52,4 +52,30 @@ def write_discard_log(
     log_path.mkdir(parents=True, exist_ok=True)
     out_file = log_path / f"{pipeline_run_id}.discards.json"
     out_file.write_text(json.dumps(payload, indent=2, default=str))
+
+    _print_discards(discards, payload["totals"])
     return str(out_file)
+
+
+def _print_discards(discards: list[DiscardedArticle], totals: dict[str, int]) -> None:
+    """Print per-article discards to stdout so they're visible in hosted logs."""
+    if not discards:
+        print("🗑  Discards: 0")
+        return
+
+    totals_str = ", ".join(f"{stage}={count}" for stage, count in totals.items() if count)
+    print(f"🗑  Discards: {len(discards)} total — {totals_str}")
+
+    stage_order = {stage: i for i, stage in enumerate(STAGES)}
+    sorted_discards = sorted(
+        discards, key=lambda d: (stage_order.get(d.stage, len(STAGES)), d.url)
+    )
+
+    for d in sorted_discards:
+        if d.stage.startswith("dedup_") and d.kept_in_favor_of:
+            suffix = f"(kept {d.kept_in_favor_of})"
+        elif d.reason:
+            suffix = f"({d.reason})"
+        else:
+            suffix = ""
+        print(f'   [{d.stage:<20}] {d.url} — "{d.title}" {suffix}'.rstrip())

@@ -3,11 +3,12 @@
  * When ?tag= URL param is present, filters stories to matching tag only.
  */
 
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { AppBar } from '../components/AppBar';
 import { StoryCard } from '../components/StoryCard';
 import { getRun, exportBrief } from '../api/client';
+import { FormStateContext, mapRunRequestToFormState } from '../App';
 import type { Run, Brief, Section } from '../types/models';
 
 const ROMAN = ['i', 'ii', 'iii', 'iv', 'v'];
@@ -30,6 +31,7 @@ export function BriefScreen() {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { setFormState } = useContext(FormStateContext);
 
   const [run, setRun] = useState<Run | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +61,9 @@ export function BriefScreen() {
   }
 
   function handleRerun() {
+    if (run) {
+      setFormState(mapRunRequestToFormState(run.request));
+    }
     navigate('/');
   }
 

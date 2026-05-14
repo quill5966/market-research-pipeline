@@ -6,7 +6,7 @@
  * reload (navigating away from the site entirely).
  */
 
-import { useState } from 'react';
+import { createContext, useState } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { NewRunScreen } from './screens/NewRunScreen';
 import { PipelineScreen } from './screens/PipelineScreen';
@@ -19,6 +19,7 @@ import {
   DEFAULT_DEDUP_TITLE_SIMILARITY,
   DEFAULT_DEDUP_SNIPPET_SIMILARITY,
 } from './constants';
+import type { RunRequest } from './types/models';
 
 export interface FormState {
   productName: string;
@@ -44,24 +45,47 @@ const INITIAL_FORM: FormState = {
   dedupSnippetSimilarity: String(DEFAULT_DEDUP_SNIPPET_SIMILARITY),
 };
 
+// Maps a completed run's RunRequest back to FormState for Re-Run prefill.
+// Merges over INITIAL_FORM so newly-added FormState fields fall back to defaults.
+export function mapRunRequestToFormState(req: RunRequest): FormState {
+  return {
+    ...INITIAL_FORM,
+    productName: req.product_name,
+    productContext: req.product_context,
+    searchTerms: req.search_terms,
+    includeDomains: req.include_domains ?? [],
+    excludeDomains: req.exclude_domains ?? [],
+    maxResultsPerTerm: String(req.max_results_per_term),
+    maxArticleChars: String(req.max_article_chars),
+    dedupTitleSimilarity: String(req.dedup_title_similarity),
+    dedupSnippetSimilarity: String(req.dedup_snippet_similarity),
+  };
+}
+
+export const FormStateContext = createContext<{
+  setFormState: (s: FormState) => void;
+}>({ setFormState: () => {} });
+
 export default function App() {
   const [formState, setFormState] = useState<FormState>(INITIAL_FORM);
 
   return (
     <BrowserRouter>
-      <Routes>
-        <Route
-          path="/"
-          element={
-            <NewRunScreen
-              formState={formState}
-              onFormChange={setFormState}
-            />
-          }
-        />
-        <Route path="/runs/:id" element={<PipelineScreen />} />
-        <Route path="/runs/:id/brief" element={<BriefScreen />} />
-      </Routes>
+      <FormStateContext.Provider value={{ setFormState }}>
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <NewRunScreen
+                formState={formState}
+                onFormChange={setFormState}
+              />
+            }
+          />
+          <Route path="/runs/:id" element={<PipelineScreen />} />
+          <Route path="/runs/:id/brief" element={<BriefScreen />} />
+        </Routes>
+      </FormStateContext.Provider>
     </BrowserRouter>
   );
 }

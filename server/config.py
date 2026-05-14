@@ -26,9 +26,9 @@ class ServerConfig(BaseModel):
     # Shared-secret gate for the app (sent by the client as Authorization: Bearer <passcode>)
     app_passcode: str
 
-    # LLM
+    # LLM fallback if not set in env variables
     model: str = "claude-sonnet-4-6"
-    token_budget: int = 50_000
+    token_budget: int = 200_000
 
     # Output paths
     output_dir: str = "output"
@@ -153,7 +153,7 @@ def load_server_config(env_path: str | None = None) -> ServerConfig:
         tavily_api_key=os.getenv("TAVILY_API_KEY", ""),
         app_passcode=os.getenv("APP_PASSCODE", ""),
         model=os.getenv("MODEL", "claude-sonnet-4-6"),
-        token_budget=int(os.getenv("TOKEN_BUDGET", "50000")),
+        token_budget=int(os.getenv("TOKEN_BUDGET", "200000")),
         output_dir=os.getenv("OUTPUT_DIR", "output"),
         log_dir=os.getenv("LOG_DIR", "logs"),
         max_concurrent_runs=int(os.getenv("MAX_CONCURRENT_RUNS", "3")),

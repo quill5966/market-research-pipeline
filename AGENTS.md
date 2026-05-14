@@ -39,7 +39,7 @@ market-research-pipeline/
 ├── .venv/                     # Python venv at repo root (gitignored)
 ├── mockups/                   # Static HTML mockups (design reference)
 ├── server/                    # FastAPI backend
-│   ├── server.py              # FastAPI app, CORS, in-memory run store, endpoints
+│   ├── server.py              # FastAPI app, CORS, passcode dependency, concurrency semaphore, in-memory run store, endpoints
 │   ├── main.py                # Pipeline orchestrator (execute_pipeline)
 │   ├── config.py              # ServerConfig + RunConfig + load_server_config / build_run_config
 │   ├── models.py              # All Pydantic models (Run, Brief, SearchResult, etc.)
@@ -67,9 +67,9 @@ market-research-pipeline/
         ├── App.tsx            # Root + react-router routes (/, /runs/:id, /runs/:id/brief)
         ├── main.tsx
         ├── index.css          # Design system (tokens + component styles)
-        ├── api/client.ts      # Typed fetch wrapper for /api/runs
+        ├── api/client.ts      # Typed fetch wrapper for /api/runs + passcode helpers
         ├── types/models.ts    # TypeScript mirrors of server Pydantic models
-        ├── components/        # AppBar, PillInput, TagChip, StoryCard, PipelineStageList
+        ├── components/        # AppBar, PasscodeGate, PillInput, TagChip, StoryCard, PipelineStageList
         └── screens/           # NewRunScreen, PipelineScreen, BriefScreen
 ```
 
@@ -99,23 +99,41 @@ stage progress as the client polls.
 
 ## API Surface
 
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/api/runs` | Body: `RunRequest`. Creates a `Run`, kicks off `execute_pipeline` in a background thread, returns `{"id": "<uuid>"}`. |
-| `GET`  | `/api/runs/{id}` | Returns the live `Run` (status, stages, brief, error). Client polls this. |
-| `GET`  | `/api/runs/{id}/export` | Returns `brief.raw_markdown` as a `text/markdown` attachment. 400 if not complete. |
-| `GET`  | `/api/health` | `{"status": "ok"}` |
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/auth/check` | ✅ | Validates the supplied passcode and returns `{"ok": true}`. Used by the UI's `PasscodeGate` before storing the value in `sessionStorage`. |
+| `POST` | `/api/runs` | ✅ | Body: `RunRequest`. Creates a `Run`, kicks off `execute_pipeline` in a background thread, returns `{"id": "<uuid>"}`. Returns `429` if `MAX_CONCURRENT_RUNS` is saturated. |
+| `GET`  | `/api/runs/{id}` | ✅ | Returns the live `Run` (status, stages, brief, error). Client polls this. |
+| `GET`  | `/api/runs/{id}/export` | ✅ | Returns `brief.raw_markdown` as a `text/markdown` attachment. 400 if not complete. |
+| `GET`  | `/api/health` | — | `{"status": "ok"}`. Intentionally public so Render's health probe works. |
 
-CORS is currently locked to `http://localhost:5173` (Vite dev server) in `server.py`.
+All auth-required endpoints use the `require_passcode` FastAPI dependency in `server.py`, which constant-time-compares `Authorization: Bearer <passcode>` against `ServerConfig.app_passcode` via `hmac.compare_digest`. On mismatch the response is `401` with `WWW-Authenticate: Bearer`.
+
+CORS origins come from `ALLOWED_ORIGINS` (comma-separated, default `http://localhost:5173`). `server.py` **rejects `*` at startup** — list each origin explicitly. `allow_methods` is narrowed to `GET, POST, OPTIONS` and `allow_headers` to `Authorization, Content-Type`.
+
+### Concurrency cap
+- `MAX_CONCURRENT_RUNS` (default 3) is a module-level `threading.Semaphore` in `server.py`. `POST /api/runs` does a non-blocking `acquire()`; over-cap submits get a `429`. The slot is released in a `finally` from a wrapper around `execute_pipeline`, so failures and success both free it.
+- Slots count **currently-running** pipelines, not historical ones — the `runs` dict still grows unbounded; reset by restarting the process.
 
 ## Key Patterns & Conventions
 
 ### Config (two layers)
-- **`ServerConfig`** (server-level) — `ANTHROPIC_API_KEY`, `TAVILY_API_KEY`, `MODEL`, `TOKEN_BUDGET`, `OUTPUT_DIR`, `LOG_DIR`. Loaded from `.env.local` (falls back to `.env`) at startup by `load_server_config()`. API keys are the only *required* values; everything else has a default.
+- **`ServerConfig`** (server-level) — `ANTHROPIC_API_KEY`, `TAVILY_API_KEY`, `APP_PASSCODE`, `MODEL`, `TOKEN_BUDGET`, `MAX_CONCURRENT_RUNS`, `OUTPUT_DIR`, `LOG_DIR`. Loaded from `.env.local` (falls back to `.env`) at startup by `load_server_config()`. The three required values are the two API keys and `APP_PASSCODE` (min 8 chars). Everything else has a default.
 - **`RunConfig`** (per-run) — built by `build_run_config(server, request)` for each `POST /api/runs`. Merges server-level values with the UI-supplied `RunRequest` fields: `product_name`, `product_context`, `search_terms`, `include_domains`, `exclude_domains`, `max_results_per_term`, `max_article_chars`, `dedup_title_similarity`, `dedup_snippet_similarity`.
 - **Per-run things now come from the UI form**, not env vars. Do not re-add `DOMAIN_DESCRIPTION` / `SEARCH_TERMS` to `ServerConfig`.
 - `output/` and `logs/` directories are auto-created on `load_server_config()`.
-- Pydantic validators enforce types and ranges (token budget > 0, similarities in `[0, 1]`, etc.).
+- Pydantic validators enforce types and ranges (token budget > 0, similarities in `[0, 1]`, `APP_PASSCODE` ≥ 8 chars, `include_domains`/`exclude_domains` ≤ 50 entries each, etc.).
+
+### Auth (shared passcode)
+- Single shared secret model — **not real auth**, just a gate to keep random scanners off the API. Stored as `APP_PASSCODE` in env, never per-user.
+- Server side: `require_passcode(request)` in `server.py` is a FastAPI `Depends` that reads `Authorization: Bearer <passcode>` and compares against `ServerConfig.app_passcode` via `hmac.compare_digest`. Applied to every endpoint except `/api/health`. Don't add new endpoints without it.
+- Client side: passcode lives in `sessionStorage` under key `app_passcode` (see `client/src/api/client.ts`). The `PasscodeGate` component (`client/src/components/PasscodeGate.tsx`) wraps `<BrowserRouter>` in `App.tsx` and blocks rendering until the passcode validates via `POST /api/auth/check`. All API calls send the `Authorization` header automatically.
+- 401 recovery: `handleResponse` in `client.ts` clears the stored passcode and calls `window.location.reload()` on any 401 — this is what recovers cleanly after the server-side passcode is rotated.
+- Sign-out: `AppBar` has a button that clears `sessionStorage` and reloads, which re-mounts the gate.
+- To rotate: change `APP_PASSCODE` on the server and tell trusted users. No client-side change needed.
+
+### Error sanitization
+- The catch-all in `main.py:execute_pipeline` logs the full traceback via `logging.exception(...)` and assigns a generic `"Pipeline run failed. Check server logs for details."` to `Run.error`. Do not echo raw exception strings back to the client — library internals and external API response bodies have leaked through that path before. `TokenBudgetExceeded` is exempt because its message describes an expected operational limit.
 
 ### LLM Calls
 - **All LLM calls go through `AgentClient.call()`** — never instantiate `anthropic.Anthropic()` directly.
@@ -191,7 +209,7 @@ From the repo root, with two terminals:
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r server/requirements.txt
-cp server/.env.example server/.env.local   # then fill in API keys
+cp server/.env.example server/.env.local   # then fill in API keys + APP_PASSCODE
 cd server && uvicorn server:app --reload --port 8000
 
 # Terminal 2 — Client

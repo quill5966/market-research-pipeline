@@ -38,9 +38,10 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r server/requirements.txt
 
-# Server — API keys
+# Server — API keys and passcode
 cp server/.env.example server/.env.local
-# Edit server/.env.local with your real API keys
+# Edit server/.env.local: fill in ANTHROPIC_API_KEY, TAVILY_API_KEY, and APP_PASSCODE.
+# Generate a strong passcode with: openssl rand -base64 24
 
 # Client — Node dependencies
 cd client && npm install && cd ..
@@ -58,7 +59,9 @@ cd server && source ../.venv/bin/activate && uvicorn server:app --reload --port 
 cd client && npm run dev
 ```
 
-Open **http://localhost:5173** to access the app.
+Open **http://localhost:5173** to access the app. You'll be prompted for the
+`APP_PASSCODE` you set in `server/.env.local`; it's cached in `sessionStorage`
+and forgotten when you close the browser tab.
 
 ## Configuration
 
@@ -68,10 +71,29 @@ Server-level configuration lives in `server/.env.local`. Per-run parameters — 
 |---|---|---|---|
 | `ANTHROPIC_API_KEY` | ✅ | — | Anthropic API key |
 | `TAVILY_API_KEY` | ✅ | — | Tavily API key |
+| `APP_PASSCODE` | ✅ | — | Shared passcode that gates the UI and API (≥8 chars; use ≥16 random chars in production) |
 | `MODEL` | | `claude-sonnet-4-6` | Anthropic model ID |
 | `TOKEN_BUDGET` | | `50000` | Max input tokens per run |
+| `MAX_CONCURRENT_RUNS` | | `3` | Max simultaneous pipeline runs across the server (extra POSTs get a 429) |
+| `ALLOWED_ORIGINS` | | `http://localhost:5173` | Comma-separated CORS origins. `*` is rejected at startup |
 | `OUTPUT_DIR` | | `output` | Directory for generated briefs |
 | `LOG_DIR` | | `logs` | Directory for token usage logs |
+
+## Security
+
+The app is gated by a single shared passcode (`APP_PASSCODE`). The client sends
+it on every request as `Authorization: Bearer <passcode>` and the server
+constant-time-compares against the env value. This is **not** real auth — it's
+a "keep random scanners off the API" gate. To revoke access, rotate
+`APP_PASSCODE` on the server and tell trusted users the new value.
+
+Other hardening already in place:
+- `MAX_CONCURRENT_RUNS` caps how many pipelines can run at once; over-cap
+  submits get a `429`.
+- CORS rejects `*` origins at startup; methods/headers are narrowed.
+- Pipeline errors surface a generic message to the client; full tracebacks
+  stay in the server log.
+- `include_domains`/`exclude_domains` are bounded to 50 entries each.
 
 ## Project Structure
 
@@ -110,19 +132,22 @@ market-research-pipeline/
     │   ├── index.css           # Design system (tokens, components)
     │   ├── api/client.ts       # Typed fetch wrapper for /api/runs
     │   ├── types/models.ts     # TypeScript interfaces (mirrors server models)
-    │   ├── components/         # AppBar, PillInput, TagChip, StoryCard, PipelineStageList
+    │   ├── components/         # AppBar, PasscodeGate, PillInput, TagChip, StoryCard, PipelineStageList
     │   └── screens/            # NewRunScreen, PipelineScreen, BriefScreen
     └── node_modules/           # (gitignored)
 ```
 
 ## API Endpoints
 
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/api/runs` | Start a new pipeline run |
-| `GET` | `/api/runs/:id` | Get run status, stages, and brief |
-| `GET` | `/api/runs/:id/export` | Download brief as markdown |
-| `GET` | `/api/health` | Health check |
+All endpoints except `/api/health` require `Authorization: Bearer <APP_PASSCODE>`.
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/auth/check` | ✅ | Validate the passcode without side effects (used by the UI gate) |
+| `POST` | `/api/runs` | ✅ | Start a new pipeline run. Returns `429` if `MAX_CONCURRENT_RUNS` is saturated |
+| `GET` | `/api/runs/:id` | ✅ | Get run status, stages, and brief |
+| `GET` | `/api/runs/:id/export` | ✅ | Download brief as markdown |
+| `GET` | `/api/health` | — | Health check (public, for Render) |
 
 ## Cost & Token Tracking
 

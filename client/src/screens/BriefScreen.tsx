@@ -140,11 +140,6 @@ export function BriefScreen() {
       <AppBar
         actions={
           <>
-            {!activeTag && (
-              <button className="btn btn-ghost" onClick={() => navigate(`/runs/${id}/brief?tag=`)}>
-                <i className="ti ti-filter" /> Filter
-              </button>
-            )}
             <button className="btn btn-ghost" onClick={handleExport}>
               <i className="ti ti-download" /> Export
             </button>

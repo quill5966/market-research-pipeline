@@ -9,7 +9,7 @@ Always create an implementation plan before making changes, get the plan reviewe
 
 ## Project Overview
 
-A full-stack web app that searches the web for news related to a user-specified product domain, deduplicates and synthesizes the results with LLM calls, and produces a structured PM brief rendered in the UI (and exportable as markdown).
+A full-stack web app that searches the web for news related to a user-specified product (short name + free-text product context), deduplicates and synthesizes the results with LLM calls, and produces a structured PM brief rendered in the UI (and exportable as markdown).
 
 - **Server** — FastAPI app that exposes a small `/api/runs` surface and runs the pipeline as a background thread.
 - **Client** — Vite + React (TypeScript) app that submits run requests, polls for stage progress, and renders the finished brief.
@@ -128,7 +128,7 @@ CORS is currently locked to `http://localhost:5173` (Vite dev server) in `server
 - When adding a new model, **add its pricing to `MODEL_PRICING`** — the tracker raises `KeyError` on unknown models.
 - Current pricing (Sonnet 4.6): `$3.00 / M` input, `$15.00 / M` output.
 - Each run produces `logs/{pipeline_run_id}.json` with a per-step breakdown.
-- `pipeline_run_id` (distinct from the API-level `Run.id` UUID) format: `{ISO timestamp}_{sanitized-domain}`, second-precision.
+- `pipeline_run_id` (distinct from the API-level `Run.id` UUID) format: `{ISO timestamp}_{sanitized product_name}`, second-precision.
 
 ### JSON Parsing
 - Any LLM response expected as JSON must be parsed via `agent/json_utils.py:parse_llm_json()`. Handles code fences, preamble text, trailing commas.
@@ -157,16 +157,18 @@ CORS is currently locked to `http://localhost:5173` (Vite dev server) in `server
 - Thresholds come from `RunConfig` (defaults: title `0.6`, snippet `0.8`).
 
 ### Agent Steps
-- **Prompts:** `prompts/system.py` builds the shared system prompt for the configured domain. Each step has its own user-message builder in `prompts/`.
+- **Prompts:** `prompts/system.py` builds the shared system prompt from `product_name` (short label, used in prompt grammar) and `product_context` (multi-line block describing mission, target customer, current bets, PM responsibility). Every agent step inherits this system prompt. Each step has its own user-message builder in `prompts/`.
 - **Grouping (`agent/grouper.py`):** Filters out results with no `raw_content` before prompting. Groups by story arc, selects best source per group (cap ~15). Output validated as `GroupingResult` via `parse_llm_json()`.
 - **Extraction (`agent/extractor.py`):** Processes articles **one at a time** (not batched) to keep context small. Each call gets a unique `step_name` (`extraction_1`, `extraction_2`, ...). Accepts a `progress_callback(completed, total)` so the orchestrator can update stage detail live. Gracefully skips on parse failure or `TokenBudgetExceeded` and returns partial results.
-- **Synthesis (`agent/synthesizer.py`):** Produces raw **markdown** (not JSON). Uses `max_tokens=4096`. Output is written to `output/{pipeline_run_id}.md` and also stored on the `Run.brief.raw_markdown` field.
+- **Synthesis (`agent/synthesizer.py`):** Emits a structured `Brief` **JSON** object (validated against the Pydantic `Brief` model). Uses `max_tokens=8192`. The server then renders markdown server-side via `templates/pm_brief.py:render_brief_markdown()` from the structured brief and writes it to `output/{pipeline_run_id}.md`; the same string is also stored on `Run.brief.raw_markdown`.
+- **Synthesis prompt — PM action items bias.** The synthesis prompt biases action items toward four categories (treat as suggestions, not strict tags): **customer/user research questions**, **roadmap considerations**, **competitive responses**, **positioning & messaging**. Each item must be grounded in `product_context` and name a specific product area, competitor, segment, or customer cohort — no generic "monitor the landscape" advice. UI surfaces these under the heading "Ideas for PM Next Steps".
+- **Intentionally absent sections.** "Watchlist", "Outlook", and "One thing to watch" were removed from the schema and prompts. The brief should end with its last thematic cluster. Do **not** re-introduce them without an explicit product decision; the synthesis prompt and `templates/pm_brief.py` actively discourage them.
 
 ### Pipeline ↔ API integration
 - `runs: dict[str, Run]` in `server.py` is an in-memory store — it does **not** persist across restarts. If you need durability, this is the seam to add it.
 - `execute_pipeline` runs in a daemon `Thread`. It mutates `Run.status`, `Run.stages[*].status/detail/elapsed_ms`, `Run.brief`, and `Run.error` directly — those mutations are what the client sees via polling.
 - Stage names are fixed: `["search", "dedup", "group", "extract", "synthesize"]` (see `STAGE_NAMES`). The `Stage.name` Literal in `models.py` must match.
-- `Brief.raw_markdown` is currently the source of truth for the rendered brief. The structured `Brief` fields (`highlights`, `sections`, `action_items`, etc.) are scaffolded but not yet populated by the pipeline (see TODO in `main.py`).
+- The structured `Brief` fields (`highlights`, `executive_summary`, `sections`, `action_items`, `sources`) are the source of truth for the rendered UI — `BriefScreen.tsx` walks them directly. `Brief.raw_markdown` is a server-rendered export of the same structured data (via `render_brief_markdown()`), used for the `/api/runs/:id/export` endpoint and as a fallback when the structured fields are empty.
 
 ## Running the Project
 

@@ -62,7 +62,7 @@ Open **http://localhost:5173** to access the app.
 
 ## Configuration
 
-Server-level configuration lives in `server/.env.local`. Per-run parameters (domain, search terms, domain filters) are submitted through the UI form.
+Server-level configuration lives in `server/.env.local`. Per-run parameters — product name, product context (mission / target customer / current bets / PM role), search terms, and include/exclude domain filters — are submitted through the UI form.
 
 | Variable | Required | Default | Description |
 |---|---|---|---|

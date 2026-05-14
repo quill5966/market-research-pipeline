@@ -226,7 +226,17 @@ class Source(BaseModel):
 
     domain: str
     url: str
-    referenced_in: list[str]  # Section names where this URL appears
+    referenced_in: list[str]  # Section titles where this URL appears
+
+
+class Section(BaseModel):
+    """A section of the brief — the synthesizer chooses the type and title per run."""
+
+    type: Literal["summary", "list", "callout", "quote"]
+    title: str  # Section heading (e.g., "Competitor Moves", "Outlook")
+    content_md: str | None = None  # Prose body for summary/callout/quote (and optional lede for list)
+    stories: list[Story] = []  # Populated only for type == "list"
+    source_urls: list[str] = []  # Consolidated source URLs for this section
 
 
 class Brief(BaseModel):
@@ -237,10 +247,10 @@ class Brief(BaseModel):
     source_count: int
     story_count: int
     search_term_count: int
-    raw_markdown: str  # Original markdown blob for export
+    raw_markdown: str  # Rendered markdown blob for export
     highlights: list[Highlight]
     executive_summary: str
-    sections: dict[str, list[Story]]  # Keys: competitor_moves, market_macro, etc.
+    sections: list[Section]  # Ordered; synthesizer decides which sections exist
     watchlist: list[WatchlistItem]
     action_items: list[ActionItem]
     sources: list[Source]

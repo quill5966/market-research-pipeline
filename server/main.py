@@ -21,7 +21,8 @@ from agent.extractor import extract_articles
 from agent.synthesizer import synthesize_brief
 from services.search import search
 from services.dedup import deduplicate
-from models import Run, Stage, Brief
+from models import Run, Stage
+from templates.pm_brief import render_brief_markdown
 
 
 def generate_run_id(domain: str) -> str:
@@ -149,40 +150,35 @@ def execute_pipeline(run: Run, config: RunConfig) -> None:
         _update_stage(run, "synthesize", "active", "Generating brief...")
         run_date = datetime.now().strftime("%Y-%m-%d")
 
-        brief_markdown = synthesize_brief(client, notes, config.domain_description, run_date)
+        brief = synthesize_brief(client, notes, config.domain_description, run_date)
 
-        if brief_markdown:
-            # Write markdown to output/
+        if brief:
+            # Override LLM-supplied counts with deterministic values
+            brief.title = config.domain_description
+            brief.date = run_date
+            brief.source_count = len({sr.source_domain for sr in deduped})
+            brief.story_count = sum(len(s.stories) for s in brief.sections)
+            brief.search_term_count = len(config.search_terms)
+
+            # Render markdown server-side from the structured brief
+            brief.raw_markdown = render_brief_markdown(brief)
+
+            # Write markdown export to output/
             output_path = Path(config.output_dir) / f"{pipeline_run_id}.md"
-            output_path.write_text(brief_markdown)
+            output_path.write_text(brief.raw_markdown)
 
-            # TODO Phase 3: Parse into structured Brief object
-            # For now, store raw markdown in a minimal Brief
-            run.brief = Brief(
-                title=config.domain_description,
-                date=run_date,
-                source_count=len(deduped),
-                story_count=len(grouping_result.groups),
-                search_term_count=len(config.search_terms),
-                raw_markdown=brief_markdown,
-                highlights=[],
-                executive_summary="",
-                sections={},
-                watchlist=[],
-                action_items=[],
-                sources=[],
-            )
+            run.brief = brief
 
             _update_stage(
                 run, "synthesize", "done",
-                f"Brief generated ({len(brief_markdown):,} chars)",
+                f"Brief generated · {len(brief.sections)} sections · {brief.story_count} stories",
                 t0,
             )
             run.status = "complete"
         else:
-            run.error = "Synthesizer produced empty output."
+            run.error = "Synthesizer produced empty or unparseable output."
             run.status = "failed"
-            _update_stage(run, "synthesize", "failed", "Empty output")
+            _update_stage(run, "synthesize", "failed", "Empty or unparseable output")
 
         # Save token usage log
         tracker.save()

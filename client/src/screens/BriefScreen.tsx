@@ -8,16 +8,23 @@ import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { AppBar } from '../components/AppBar';
 import { StoryCard } from '../components/StoryCard';
 import { getRun, exportBrief } from '../api/client';
-import type { Run, Brief, Story } from '../types/models';
+import type { Run, Brief, Section } from '../types/models';
 
 const ROMAN = ['i', 'ii', 'iii', 'iv', 'v'];
 
-const SECTION_LABELS: Record<string, string> = {
-  competitor_moves: 'Competitor Moves',
-  market_macro: 'Market & Macro',
-  customer_buyer: 'Customer Signals',
-  technology_ecosystem: 'Technology & Ecosystem',
-};
+function sectionId(title: string): string {
+  return 'section-' + title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+// Minimal markdown → HTML pass for content_md blocks in summary/callout/quote sections.
+function renderMarkdown(md: string): string {
+  return md
+    .replace(/^### (.+)$/gm, '<h4 style="font-family: var(--font-display); font-size: 20px; font-weight: 500; margin: 28px 0 12px;">$1</h4>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^- (.+)$/gm, '<div style="padding: 4px 0 4px 16px;">→ $1</div>')
+    .replace(/\n\n/g, '<br><br>');
+}
 
 export function BriefScreen() {
   const { id } = useParams<{ id: string }>();
@@ -85,26 +92,49 @@ export function BriefScreen() {
 
   const brief: Brief = run.brief;
 
-  // Filter stories if tag param is present
-  const filteredSections: Record<string, Story[]> = {};
-  const hiddenSections: string[] = [];
+  // Under a tag filter:
+  //   - list sections: keep only stories whose filter_tags include activeTag.
+  //     If none match, the section is hidden (and surfaced in the notice).
+  //   - non-list sections (summary/callout/quote): hidden entirely under filter,
+  //     since the filtered view is a focused per-tag drill-down.
+  const visibleSections: Section[] = [];
+  const hiddenSectionTitles: string[] = [];
 
-  for (const [sectionKey, stories] of Object.entries(brief.sections)) {
-    const filtered = activeTag
-      ? stories.filter((s) => s.filter_tags.includes(activeTag))
-      : stories;
-
-    if (filtered.length > 0) {
-      filteredSections[sectionKey] = filtered;
-    } else if (activeTag && stories.length > 0) {
-      hiddenSections.push(SECTION_LABELS[sectionKey] || sectionKey);
+  for (const section of brief.sections) {
+    if (!activeTag) {
+      visibleSections.push(section);
+      continue;
+    }
+    if (section.type === 'list') {
+      const filtered = section.stories.filter((s) =>
+        s.filter_tags.includes(activeTag)
+      );
+      if (filtered.length > 0) {
+        visibleSections.push({ ...section, stories: filtered });
+      } else if (section.stories.length > 0) {
+        hiddenSectionTitles.push(section.title);
+      }
+    } else {
+      hiddenSectionTitles.push(section.title);
     }
   }
 
-  // Count total visible stories
-  const visibleStoryCount = Object.values(filteredSections).reduce(
-    (sum, stories) => sum + stories.length, 0
+  const visibleStoryCount = visibleSections.reduce(
+    (sum, s) => sum + (s.type === 'list' ? s.stories.length : 0),
+    0
   );
+
+  const hasStructuredContent =
+    brief.sections.length > 0 ||
+    brief.highlights.length > 0 ||
+    brief.executive_summary.length > 0;
+
+  const validSectionIds = new Set<string>([
+    ...brief.sections.map((s) => sectionId(s.title)),
+    ...(brief.watchlist.length > 0 ? [sectionId('Watchlist')] : []),
+    ...(brief.action_items.length > 0 ? [sectionId('PM Action Items')] : []),
+    ...(brief.sources.length > 0 ? [sectionId('Sources')] : []),
+  ]);
 
   return (
     <>
@@ -159,9 +189,8 @@ export function BriefScreen() {
           </div>
         </div>
 
-        {/* Check if structured data exists or if we need the raw markdown fallback */}
-        {Object.keys(filteredSections).length === 0 && !activeTag && brief.raw_markdown ? (
-          /* Raw markdown fallback — shown until Phase 3 adds structured JSON synthesis */
+        {/* Fallback to raw markdown only when the brief has no structured content. */}
+        {!hasStructuredContent && brief.raw_markdown ? (
           <div
             className="brief-raw-markdown"
             style={{
@@ -188,48 +217,98 @@ export function BriefScreen() {
           <>
 
 
-        {/* Highlights */}
-        {!activeTag && brief.highlights.length > 0 && (
+        {/* Highlights (with summary merged in) */}
+        {!activeTag && (brief.executive_summary || brief.highlights.length > 0) && (
           <div className="highlights">
-            <div className="highlights-label">Top Highlights</div>
-            {brief.highlights.map((h) => (
-              <div key={h.rank} className="highlight-item">
-                <span className="highlight-num">{ROMAN[h.rank - 1] || h.rank}.</span>
-                <span className="highlight-text">
-                  <strong>{h.headline}</strong> — {h.why_matters}
-                  <span className="highlight-pointer"> → {h.pointer_section}</span>
-                </span>
-              </div>
-            ))}
+            {brief.executive_summary && (
+              <>
+                <div className="highlights-label">Summary</div>
+                <p className="highlights-summary">{brief.executive_summary}</p>
+              </>
+            )}
+            {brief.highlights.length > 0 && (
+              <>
+                <div className="highlights-label">Top Highlights</div>
+                {brief.highlights.map((h) => (
+                  <div key={h.rank} className="highlight-item">
+                    <span className="highlight-num">{ROMAN[h.rank - 1] || h.rank}.</span>
+                    <span className="highlight-text">
+                      {h.headline} — {h.why_matters}
+                      {validSectionIds.has(sectionId(h.pointer_section)) && (
+                        <>
+                          {' '}
+                          <a className="highlight-pointer" href={`#${sectionId(h.pointer_section)}`}>
+                            → {h.pointer_section}
+                          </a>
+                        </>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </>
+            )}
           </div>
         )}
 
-        {/* Executive summary */}
-        {!activeTag && brief.executive_summary && (
-          <p className="exec-summary">{brief.executive_summary}</p>
-        )}
-
-        {/* Sections with stories */}
-        {Object.entries(filteredSections).map(([sectionKey, stories]) => (
-          <div key={sectionKey}>
-            <div className="section-heading">
-              <span className="section-heading-text">
-                {SECTION_LABELS[sectionKey] || sectionKey}
-              </span>
+        {/* Sections — type drives the rendering */}
+        {visibleSections.map((section, idx) => (
+          <div key={`${section.title}-${idx}`}>
+            <div className="section-heading" id={sectionId(section.title)}>
+              <a className="section-heading-text" href={`#${sectionId(section.title)}`}>
+                {section.title}
+              </a>
               <span className="section-heading-rule" />
-              <span className="section-heading-count">{stories.length}</span>
+              {section.type === 'list' && (
+                <span className="section-heading-count">{section.stories.length}</span>
+              )}
             </div>
-            {stories.map((story) => (
-              <StoryCard key={story.id} story={story} runId={id!} />
-            ))}
+
+            {section.content_md && (
+              <div
+                className={section.type === 'callout' ? 'info-notice' : 'section-prose'}
+                style={
+                  section.type === 'quote'
+                    ? {
+                        fontFamily: 'var(--font-display)',
+                        fontStyle: 'italic',
+                        fontSize: '20px',
+                        lineHeight: 1.5,
+                        padding: '0 0 0 20px',
+                        margin: '16px 0 24px',
+                        borderLeft: '2px solid var(--accent)',
+                      }
+                    : section.type === 'summary'
+                    ? {
+                        fontFamily: 'var(--font-display)',
+                        fontStyle: 'italic',
+                        fontSize: '17px',
+                        lineHeight: 1.6,
+                        padding: '0 0 0 20px',
+                        margin: '16px 0 24px',
+                        borderLeft: '2px solid var(--accent)',
+                      }
+                    : section.type === 'list'
+                    ? { margin: '12px 0 20px', color: 'var(--ink)' }
+                    : undefined
+                }
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(section.content_md) }}
+              />
+            )}
+
+            {section.type === 'list' &&
+              section.stories.map((story) => (
+                <StoryCard key={story.id} story={story} runId={id!} />
+              ))}
           </div>
         ))}
 
         {/* Watchlist */}
         {!activeTag && brief.watchlist.length > 0 && (
           <>
-            <div className="section-heading">
-              <span className="section-heading-text">Watchlist</span>
+            <div className="section-heading" id={sectionId('Watchlist')}>
+              <a className="section-heading-text" href={`#${sectionId('Watchlist')}`}>
+                Watchlist
+              </a>
               <span className="section-heading-rule" />
             </div>
             {brief.watchlist.map((item, i) => (
@@ -247,8 +326,10 @@ export function BriefScreen() {
         {/* Action items */}
         {!activeTag && brief.action_items.length > 0 && (
           <>
-            <div className="section-heading">
-              <span className="section-heading-text">PM Action Items</span>
+            <div className="section-heading" id={sectionId('PM Action Items')}>
+              <a className="section-heading-text" href={`#${sectionId('PM Action Items')}`}>
+                PM Action Items
+              </a>
               <span className="section-heading-rule" />
             </div>
             {brief.action_items.map((item) => (
@@ -256,7 +337,14 @@ export function BriefScreen() {
                 <span className="action-num">{item.rank}</span>
                 <span>
                   {item.text}
-                  <span className="action-pointer">→ {item.pointer_section}</span>
+                  {validSectionIds.has(sectionId(item.pointer_section)) && (
+                    <>
+                      {' '}
+                      <a className="action-pointer" href={`#${sectionId(item.pointer_section)}`}>
+                        → {item.pointer_section}
+                      </a>
+                    </>
+                  )}
                 </span>
               </div>
             ))}
@@ -266,30 +354,39 @@ export function BriefScreen() {
         {/* Sources */}
         {!activeTag && brief.sources.length > 0 && (
           <>
-            <div className="section-heading">
-              <span className="section-heading-text">Sources</span>
+            <div className="section-heading" id={sectionId('Sources')}>
+              <a className="section-heading-text" href={`#${sectionId('Sources')}`}>
+                Sources
+              </a>
               <span className="section-heading-rule" />
               <span className="section-heading-count">{brief.sources.length}</span>
             </div>
             <ul className="sources-list">
-              {brief.sources.map((src, i) => (
-                <li key={i}>
-                  <a href={src.url} target="_blank" rel="noopener noreferrer">
-                    {src.domain}
-                  </a>
-                  {' '} — {src.referenced_in.join(', ')}
-                </li>
-              ))}
+              {[...brief.sources]
+                .map((src) => ({ ...src, referenced_in: [...src.referenced_in].sort((a, b) => a.localeCompare(b)) }))
+                .sort((a, b) => {
+                  const sa = a.referenced_in[0] ?? '';
+                  const sb = b.referenced_in[0] ?? '';
+                  return sa.localeCompare(sb) || a.domain.localeCompare(b.domain);
+                })
+                .map((src, i) => (
+                  <li key={i}>
+                    <a href={src.url} target="_blank" rel="noopener noreferrer">
+                      {src.domain}
+                    </a>
+                    {' '} — {src.referenced_in.join(', ')}
+                  </li>
+                ))}
             </ul>
           </>
         )}
 
         {/* Hidden sections notice (tag filter) */}
-        {activeTag && hiddenSections.length > 0 && (
+        {activeTag && hiddenSectionTitles.length > 0 && (
           <div className="hidden-notice">
             <i className="ti ti-eye-off" />
-            {hiddenSections.length} {hiddenSections.length === 1 ? 'section' : 'sections'} hidden:{' '}
-            {hiddenSections.join(', ')}.{' '}
+            {hiddenSectionTitles.length} {hiddenSectionTitles.length === 1 ? 'section' : 'sections'} hidden:{' '}
+            {hiddenSectionTitles.join(', ')}.{' '}
             <button className="filter-clear" onClick={clearFilter} style={{ display: 'inline' }}>
               Clear filter
             </button>{' '}

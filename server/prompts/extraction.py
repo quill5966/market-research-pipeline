@@ -4,6 +4,8 @@ Formats a single article's full text into a user message that asks
 the LLM to extract structured information with thematic classification.
 """
 
+from tagging.vocabulary import FILTER_TAG_VOCABULARY
+
 
 def build_extraction_prompt(
     article_text: str,
@@ -63,6 +65,12 @@ Which of the following categories does this article inform? Select all that appl
 PM-RELEVANT GAPS:
 What questions would a PM in {domain_description} want answered that this article does not address? Focus on gaps that affect competitive positioning, roadmap decisions, or market understanding.
 
+FILTER TAGS:
+From the following closed vocabulary, select 1–4 tags that best describe this article's topic. Use ONLY values from this exact list:
+  {', '.join(FILTER_TAG_VOCABULARY)}
+
+These tags are used for UI filtering, not section routing — they are more granular than the thematic categories above. For example, an article about Okta acquiring Spera would get thematic_tags=[{{"category": "competitor_moves", "details": "..."}}] AND filter_tags=["acquisition", "competitive", "security"]. Do not invent new tags. If none apply, return an empty list.
+
 Respond with a JSON object matching this schema:
 {{
   "headline": "...",
@@ -78,6 +86,7 @@ Respond with a JSON object matching this schema:
     {{"category": "competitor_moves", "details": "..."}},
     {{"category": "market_macro", "details": "..."}}
   ],
+  "filter_tags": ["tag1", "tag2"],
   "pm_relevant_gaps": ["gap 1", "gap 2"],
   "group_label": "{group_label}"
 }}"""

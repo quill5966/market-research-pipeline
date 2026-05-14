@@ -12,6 +12,7 @@ from agent.json_utils import parse_llm_json
 from models import ExtractionNote, GroupingResult, SearchResult
 from prompts.extraction import build_extraction_prompt
 from prompts.system import build_system_prompt
+from tagging.vocabulary import FILTER_TAG_VOCABULARY
 
 
 def extract_articles(
@@ -93,6 +94,7 @@ def extract_articles(
         try:
             parsed = parse_llm_json(raw_response)
             note = ExtractionNote(**parsed)
+            note.filter_tags = [t for t in note.filter_tags if t in FILTER_TAG_VOCABULARY]
             notes.append(note)
             print(f"   📝 {i+1}/{total}: {note.headline[:60]}")
             if progress_callback:

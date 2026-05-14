@@ -1,88 +1,165 @@
-"""PM Brief template definition.
+"""PM Brief JSON schema + markdown renderer.
 
-Contains the template string that defines the structure and section
-headings for the final PM brief output. Injected into the synthesis
-prompt so the LLM knows the target format.
+The synthesizer emits a structured `Brief` JSON object (the schema below
+is injected into its prompt). `render_brief_markdown()` walks that
+structured object to produce the markdown export served by
+GET /api/runs/:id/export.
 
 Format philosophy: optimized for scanning. A reader should be able to
-skim the top of the brief in under a minute and know the most important
-items, read any single entry's TL;DR in ~10 seconds, and finish the
-entire brief in 5-10 minutes. Word caps are soft targets — readability
-beats hitting the cap exactly. Never abbreviate or truncate words to
-fit a cap; cut a clause or rewrite the sentence instead.
+skim the top in under a minute, read any TL;DR in ~10 seconds, and
+finish the whole brief in 5–10 minutes. Word caps are soft targets;
+readability beats hitting the cap exactly. Never abbreviate words to
+fit a cap — cut a clause or rewrite the sentence instead.
 """
 
-PM_BRIEF_TEMPLATE = """MARKET PULSE: [DOMAIN]
-Date: [run date]
+from models import Brief
 
---- TOP 3 HIGHLIGHTS ---
-Three single-line bullets naming the three most consequential items
-this scan period. Each line: a short headline, an em-dash, a <12-word
-"why it matters" clause, then "→ see [Section name]". Order by PM
-impact, highest first.
-Example shape:
-1. [Headline] — [why it matters in <12 words] → see [Section]
-2. [Headline] — [why it matters in <12 words] → see [Section]
-3. [Headline] — [why it matters in <12 words] → see [Section]
+BRIEF_JSON_SCHEMA = """{
+  "title": "string — the domain description (becomes the brief title)",
+  "date": "YYYY-MM-DD — the run date",
+  "source_count": "int — number of unique source domains across all sections",
+  "story_count": "int — number of stories across all list-type sections",
+  "search_term_count": "int — number of search terms in this run",
+  "raw_markdown": "string — leave as empty string; the server renders this",
+  "highlights": [
+    {
+      "rank": "int 1-3",
+      "headline": "string — ≤10 words naming the actor + the move",
+      "why_matters": "string — ≤12 words on consequence for the PM",
+      "pointer_section": "string — exact title of the section this is detailed in"
+    }
+  ],
+  "executive_summary": "string — exactly two sentences, ≤60 words total. Sentence 1 names the dominant theme. Sentence 2 states its consequence for a PM. No semicolons or embedded lists.",
+  "sections": [
+    {
+      "type": "list | summary | callout | quote",
+      "title": "string — section heading (e.g., 'Competitor Moves', 'Outlook', 'One thing to watch')",
+      "content_md": "string OR null — markdown prose for type=summary/callout/quote, or an optional lede for type=list. Null if not used.",
+      "stories": [
+        {
+          "id": "string — stable hash/slug derived from source_url",
+          "headline": "string — ≤10 words: actor + move",
+          "tldr": "string — ≤25 words. What happened, with the single most important number/date/entity.",
+          "pm_angle": "string — ≤20 words. Implication for positioning, roadmap, or stance.",
+          "supporting": "string OR null — optional ≤80-word paragraph ONLY when a non-obvious mechanism, quote, or detail materially changes the TL;DR.",
+          "source_domain": "string — e.g., 'reuters.com'",
+          "source_url": "string — full URL",
+          "additional_coverage": ["other source domains covering the same story"],
+          "filter_tags": ["tags copied from the extraction note(s) that informed this story"]
+        }
+      ],
+      "source_urls": ["all source URLs cited in this section"]
+    }
+  ],
+  "watchlist": [
+    {
+      "topic": "string — bolded prefix, ≤4 words",
+      "signal": "string — the signal in ≤20 words",
+      "source_domain": "string"
+    }
+  ],
+  "action_items": [
+    {
+      "rank": "int starting at 1",
+      "text": "string — one imperative sentence ≤20 words",
+      "pointer_section": "string — exact title of the triggering section",
+      "pointer_story_id": "string OR null — the triggering story id if applicable"
+    }
+  ],
+  "sources": [
+    {
+      "domain": "string",
+      "url": "string",
+      "referenced_in": ["section titles where this URL appears"]
+    }
+  ]
+}"""
 
---- EXECUTIVE SUMMARY ---
-≤60 words total. Exactly two sentences:
-  - Sentence 1: name the single dominant theme of the scan period.
-  - Sentence 2: state its consequence for a PM in this domain.
-No lists, no semicolons, no parenthetical asides, no embedded clauses.
-This is a frame, not a digest — the Top 3 Highlights does the digesting.
 
---- COMPETITOR MOVES ---
-Product launches, feature releases, pricing changes, partnerships, or
-strategic pivots by named competitors.
+SECTION_GUIDANCE = """Section types and when to use each:
 
-For each entry, use this exact structure:
-  ### [Headline ≤10 words: name the actor + the move]
-  **TL;DR:** ≤25 words. What happened, including the single most
-  important number, date, or named entity. No hedging.
-  **PM angle:** ≤20 words. The implication for our positioning,
-  roadmap, or competitive stance.
+- `list`: a cluster of 1–N stories surfaced as discrete entries. The workhorse for Competitor Moves, Market & Macro, Customer & Buyer Signals, Technology & Ecosystem, or any other thematic cluster. Each story has headline / TL;DR / PM angle / optional supporting / filter_tags. Use this whenever the material justifies discrete cards.
+- `summary`: a short prose paragraph (≤80 words) that frames or concludes a theme without earning its own story cards. Good for an "Outlook" closer or a mid-brief framing note.
+- `callout`: a set-apart attention block (1–3 sentences). Use for "One thing to watch", "What changed since last week", or a single high-importance insight that punches above neighboring list entries.
+- `quote`: a single pull quote with attribution on its own line (format: `"…" — Name, Title (source.com)`). Use only when one quote frames the period better than any TL;DR.
 
-  [Optional supporting paragraph, ≤80 words. Include ONLY when there
-  is a non-obvious mechanism, quote, or detail that materially changes
-  how a PM should read the TL;DR. Most entries should not need this.]
-
-  *Source: domain.com — URL*
-
-Omit the section if no competitor activity was found.
-
---- MARKET & MACRO TRENDS ---
-Regulatory changes, buyer-behavior shifts, emerging tech standards,
-macroeconomic factors. Same per-entry structure as Competitor Moves
-(headline / TL;DR / PM angle / optional ≤80-word paragraph / source).
-For PM angle in this section: is this a tailwind or headwind, and on
-what time horizon?
-Omit the section if nothing found.
-
---- CUSTOMER & BUYER SIGNALS ---
-Analyst reports, survey data, adoption metrics, public customer wins
-or losses, shifts in procurement criteria. Same per-entry structure.
-For PM angle: does this suggest shifting evaluation criteria we should
-respond to?
-Omit the section if nothing found.
-
---- TECHNOLOGY & ECOSYSTEM ---
-Standards-body decisions, open source developments, platform changes,
-integration/API announcements. Same per-entry structure.
-For PM angle: integration opportunity or compatibility risk?
-Omit the section if nothing found.
-
---- WATCHLIST ---
-Bulleted list. One line per item, ≤25 words each. Format:
-  - **[Topic]:** [the signal in <20 words] (*source: domain.com*)
-No prose blocks. No multi-sentence items. Omit the section if empty.
-
---- PM ACTION ITEMS ---
-2-5 items. Each item: one imperative sentence, ≤20 words, ending with
-a parenthetical pointer to the section/entry that motivates it.
-Example: "Review our pricing against Acme's new tier (Competitor Moves: Acme launches Pro plan)."
-No generic advice — every item must trace to a specific entry above.
-
---- SOURCES ---
-All URLs referenced in the brief, grouped by section.
+Section order is reading order — put the highest-impact section first. Omit any section type you have no material for. You may add an AGENT-IDENTIFIED section with any title when material doesn't fit a conventional cluster.
 """
+
+
+def _render_story_md(story) -> str:
+    """Render a single Story as markdown."""
+    lines = [f"### {story.headline}"]
+    lines.append(f"**TL;DR:** {story.tldr}")
+    lines.append(f"**PM angle:** {story.pm_angle}")
+    if story.supporting:
+        lines.append("")
+        lines.append(story.supporting)
+    lines.append("")
+    coverage = ""
+    if story.additional_coverage:
+        coverage = f" · also: {', '.join(story.additional_coverage)}"
+    lines.append(f"*Source: {story.source_domain} — {story.source_url}{coverage}*")
+    if story.filter_tags:
+        lines.append(f"*Tags: {', '.join(story.filter_tags)}*")
+    return "\n".join(lines)
+
+
+def render_brief_markdown(brief: Brief) -> str:
+    """Render the structured Brief as markdown for export."""
+    parts: list[str] = []
+
+    # Header
+    parts.append(f"# {brief.title}")
+    parts.append(f"*{brief.date} · {brief.story_count} stories · {brief.source_count} sources · {brief.search_term_count} search terms*")
+    parts.append("")
+
+    # Highlights
+    if brief.highlights:
+        parts.append("## Top Highlights")
+        for h in sorted(brief.highlights, key=lambda x: x.rank):
+            parts.append(f"{h.rank}. **{h.headline}** — {h.why_matters} → see {h.pointer_section}")
+        parts.append("")
+
+    # Executive summary
+    if brief.executive_summary:
+        parts.append("## Executive Summary")
+        parts.append(f"> {brief.executive_summary}")
+        parts.append("")
+
+    # Sections
+    for section in brief.sections:
+        parts.append(f"## {section.title}")
+        if section.content_md:
+            parts.append(section.content_md)
+            parts.append("")
+        if section.type == "list":
+            for story in section.stories:
+                parts.append(_render_story_md(story))
+                parts.append("")
+        # summary/callout/quote already rendered via content_md above
+        parts.append("")
+
+    # Watchlist
+    if brief.watchlist:
+        parts.append("## Watchlist")
+        for item in brief.watchlist:
+            parts.append(f"- **{item.topic}:** {item.signal} (*source: {item.source_domain}*)")
+        parts.append("")
+
+    # Action items
+    if brief.action_items:
+        parts.append("## PM Action Items")
+        for item in sorted(brief.action_items, key=lambda x: x.rank):
+            parts.append(f"{item.rank}. {item.text} ({item.pointer_section})")
+        parts.append("")
+
+    # Sources
+    if brief.sources:
+        parts.append("## Sources")
+        for src in brief.sources:
+            refs = f" — {', '.join(src.referenced_in)}" if src.referenced_in else ""
+            parts.append(f"- [{src.domain}]({src.url}){refs}")
+        parts.append("")
+
+    return "\n".join(parts).rstrip() + "\n"

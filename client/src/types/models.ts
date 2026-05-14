@@ -73,6 +73,16 @@ export interface Source {
   referenced_in: string[];
 }
 
+export type SectionType = 'summary' | 'list' | 'callout' | 'quote';
+
+export interface Section {
+  type: SectionType;
+  title: string;
+  content_md: string | null;
+  stories: Story[];
+  source_urls: string[];
+}
+
 export interface Brief {
   title: string;
   date: string;
@@ -82,7 +92,7 @@ export interface Brief {
   raw_markdown: string;
   highlights: Highlight[];
   executive_summary: string;
-  sections: Record<string, Story[]>;
+  sections: Section[];
   watchlist: WatchlistItem[];
   action_items: ActionItem[];
   sources: Source[];

@@ -12,7 +12,11 @@ services:
         sync: false
       - key: TAVILY_API_KEY
         sync: false
+      - key: APP_PASSCODE
+        sync: false
       - key: ALLOWED_ORIGINS
+        sync: false
+      - key: MAX_CONCURRENT_RUNS
         sync: false
 
   - type: web

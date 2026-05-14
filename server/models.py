@@ -185,6 +185,14 @@ class RunRequest(BaseModel):
             raise ValueError("At most 10 search terms allowed")
         return v
 
+    @field_validator("include_domains", "exclude_domains")
+    @classmethod
+    def domain_list_bounded(cls, v: list[str]) -> list[str]:
+        v = [d.strip() for d in v if d.strip()]
+        if len(v) > 50:
+            raise ValueError("At most 50 domains allowed per list")
+        return v
+
 
 class Stage(BaseModel):
     """Pipeline stage progress (part of a Run)."""

@@ -193,21 +193,26 @@ def execute_pipeline(run: Run, config: RunConfig) -> None:
         tracker.print_summary()
 
     except TokenBudgetExceeded as e:
+        # Budget messages are safe — they describe an expected operational
+        # limit, not server internals.
         run.error = str(e)
         run.status = "failed"
-        # Mark current active stage as failed
         for stage in run.stages:
             if stage.status == "active":
                 stage.status = "failed"
-                stage.detail = f"Token budget exceeded"
+                stage.detail = "Token budget exceeded"
                 break
 
     except Exception as e:
-        run.error = str(e)
+        # Log the real traceback server-side; show a generic message to the
+        # client so library internals / file paths / API response bodies don't
+        # leak through the API.
+        import logging
+        logging.exception("Pipeline run %s failed", run.id)
+        run.error = "Pipeline run failed. Check server logs for details."
         run.status = "failed"
-        # Mark current active stage as failed
         for stage in run.stages:
             if stage.status == "active":
                 stage.status = "failed"
-                stage.detail = f"Error: {str(e)[:100]}"
+                stage.detail = "Internal error"
                 break

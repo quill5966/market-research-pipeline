@@ -4,12 +4,14 @@ Serves the API for the market research web application.
 Run with: uvicorn server:app --reload --port 8000
 """
 
+import hmac
 import os
+import threading
 from datetime import datetime, timezone
 from threading import Thread
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
@@ -28,16 +30,29 @@ allowed_origins = [
     if origin.strip()
 ]
 
+# Refuse wildcard origins together with credentials — that combination is
+# either rejected by browsers or, worse, accepted permissively by misconfigured
+# proxies. Force the operator to enumerate origins explicitly.
+if "*" in allowed_origins:
+    raise ValueError(
+        "ALLOWED_ORIGINS cannot contain '*' — list each origin explicitly "
+        "(e.g. 'https://app.example.com,https://staging.example.com')."
+    )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # In-memory run store
 runs: dict[str, Run] = {}
+
+# Concurrency gate for the pipeline. Counts only currently-running pipelines,
+# not historical ones, so the runs dict can grow without throttling new submits.
+_run_slots = threading.Semaphore(server_config.max_concurrent_runs)
 
 # Default pipeline stages
 STAGE_NAMES = ["search", "dedup", "group", "extract", "synthesize"]
@@ -48,14 +63,54 @@ def _make_stages() -> list[Stage]:
     return [Stage(name=name) for name in STAGE_NAMES]
 
 
+def require_passcode(request: Request) -> None:
+    """Reject any request that doesn't carry the shared passcode.
+
+    Accepts the passcode via `Authorization: Bearer <passcode>`. Uses a
+    constant-time compare so a timing attacker can't byte-grind the secret.
+    """
+    auth = request.headers.get("authorization", "")
+    scheme, _, token = auth.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if not hmac.compare_digest(token, server_config.app_passcode):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid passcode",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
 @app.get("/api/health")
 def health_check():
-    """Health check endpoint."""
+    """Public health check (used by Render). No auth — exposes no run data."""
     return {"status": "ok"}
 
 
+@app.post("/api/auth/check")
+def auth_check(_: None = Depends(require_passcode)) -> dict:
+    """Validate the supplied passcode without performing any side effects.
+
+    Used by the client's passcode gate before storing the value in
+    sessionStorage. Returns 200 on success, 401 on failure.
+    """
+    return {"ok": True}
+
+
+def _run_pipeline_with_slot(run: Run, run_config) -> None:
+    """Wrap execute_pipeline so the semaphore is always released."""
+    try:
+        execute_pipeline(run, run_config)
+    finally:
+        _run_slots.release()
+
+
 @app.post("/api/runs")
-def create_run(request: RunRequest) -> dict:
+def create_run(request: RunRequest, _: None = Depends(require_passcode)) -> dict:
     """Start a new pipeline run.
 
     Accepts per-run configuration from the UI form, merges with
@@ -63,24 +118,37 @@ def create_run(request: RunRequest) -> dict:
 
     Returns: {"id": "<run-uuid>"}
     """
-    run_id = str(uuid4())
+    # Reject when we're already at capacity rather than queueing — a queued
+    # run looks identical to a hung run from the UI's perspective.
+    if not _run_slots.acquire(blocking=False):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Server is busy — too many concurrent runs. Try again in a moment.",
+        )
 
-    run = Run(
-        id=run_id,
-        status="queued",
-        created_at=datetime.now(timezone.utc),
-        request=request,
-        stages=_make_stages(),
-    )
+    try:
+        run_id = str(uuid4())
 
-    runs[run_id] = run
+        run = Run(
+            id=run_id,
+            status="queued",
+            created_at=datetime.now(timezone.utc),
+            request=request,
+            stages=_make_stages(),
+        )
 
-    # Build per-run config by merging server config + request
-    run_config = build_run_config(server_config, request)
+        runs[run_id] = run
 
-    # Execute pipeline in background thread
+        # Build per-run config by merging server config + request
+        run_config = build_run_config(server_config, request)
+    except Exception:
+        _run_slots.release()
+        raise
+
+    # Execute pipeline in background thread — the wrapper releases the slot
+    # when the run finishes (success or failure).
     thread = Thread(
-        target=execute_pipeline,
+        target=_run_pipeline_with_slot,
         args=(run, run_config),
         daemon=True,
     )
@@ -90,7 +158,7 @@ def create_run(request: RunRequest) -> dict:
 
 
 @app.get("/api/runs/{run_id}")
-def get_run(run_id: str) -> Run:
+def get_run(run_id: str, _: None = Depends(require_passcode)) -> Run:
     """Get run status, stage progress, and results.
 
     The Run object is updated in-place by the background thread,
@@ -102,7 +170,7 @@ def get_run(run_id: str) -> Run:
 
 
 @app.get("/api/runs/{run_id}/export")
-def export_brief(run_id: str):
+def export_brief(run_id: str, _: None = Depends(require_passcode)):
     """Download the brief as a markdown file.
 
     Only available when the run is complete and has a brief with

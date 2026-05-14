@@ -11,6 +11,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { NewRunScreen } from './screens/NewRunScreen';
 import { PipelineScreen } from './screens/PipelineScreen';
 import { BriefScreen } from './screens/BriefScreen';
+import { PasscodeGate } from './components/PasscodeGate';
 import {
   DEFAULT_INCLUDE_DOMAINS,
   DEFAULT_EXCLUDE_DOMAINS,
@@ -70,22 +71,24 @@ export default function App() {
   const [formState, setFormState] = useState<FormState>(INITIAL_FORM);
 
   return (
-    <BrowserRouter>
-      <FormStateContext.Provider value={{ setFormState }}>
-        <Routes>
-          <Route
-            path="/"
-            element={
-              <NewRunScreen
-                formState={formState}
-                onFormChange={setFormState}
-              />
-            }
-          />
-          <Route path="/runs/:id" element={<PipelineScreen />} />
-          <Route path="/runs/:id/brief" element={<BriefScreen />} />
-        </Routes>
-      </FormStateContext.Provider>
-    </BrowserRouter>
+    <PasscodeGate>
+      <BrowserRouter>
+        <FormStateContext.Provider value={{ setFormState }}>
+          <Routes>
+            <Route
+              path="/"
+              element={
+                <NewRunScreen
+                  formState={formState}
+                  onFormChange={setFormState}
+                />
+              }
+            />
+            <Route path="/runs/:id" element={<PipelineScreen />} />
+            <Route path="/runs/:id/brief" element={<BriefScreen />} />
+          </Routes>
+        </FormStateContext.Provider>
+      </BrowserRouter>
+    </PasscodeGate>
   );
 }

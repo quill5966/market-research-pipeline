@@ -23,6 +23,9 @@ class ServerConfig(BaseModel):
     anthropic_api_key: str
     tavily_api_key: str
 
+    # Shared-secret gate for the app (sent by the client as Authorization: Bearer <passcode>)
+    app_passcode: str
+
     # LLM
     model: str = "claude-sonnet-4-6"
     token_budget: int = 50_000
@@ -30,6 +33,23 @@ class ServerConfig(BaseModel):
     # Output paths
     output_dir: str = "output"
     log_dir: str = "logs"
+
+    # Concurrency limit: max simultaneously-running pipeline runs across the server
+    max_concurrent_runs: int = 3
+
+    @field_validator("app_passcode")
+    @classmethod
+    def passcode_must_be_strong_enough(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("APP_PASSCODE must be at least 8 characters")
+        return v
+
+    @field_validator("max_concurrent_runs")
+    @classmethod
+    def max_concurrent_runs_positive(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError(f"MAX_CONCURRENT_RUNS must be positive, got {v}")
+        return v
 
     @field_validator("token_budget")
     @classmethod
@@ -109,10 +129,11 @@ def load_server_config(env_path: str | None = None) -> ServerConfig:
     required_keys = {
         "ANTHROPIC_API_KEY": "Your Anthropic API key (starts with sk-ant-...)",
         "TAVILY_API_KEY": "Your Tavily API key (starts with tvly-...)",
+        "APP_PASSCODE": "Shared passcode that gates the UI/API (min 8 chars)",
     }
 
     # Exact placeholder values to reject (from .env.example)
-    PLACEHOLDERS = {"sk-ant-...", "tvly-..."}
+    PLACEHOLDERS = {"sk-ant-...", "tvly-...", "change-me"}
 
     missing = []
     for key, description in required_keys.items():
@@ -130,10 +151,12 @@ def load_server_config(env_path: str | None = None) -> ServerConfig:
     config = ServerConfig(
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
         tavily_api_key=os.getenv("TAVILY_API_KEY", ""),
+        app_passcode=os.getenv("APP_PASSCODE", ""),
         model=os.getenv("MODEL", "claude-sonnet-4-6"),
         token_budget=int(os.getenv("TOKEN_BUDGET", "50000")),
         output_dir=os.getenv("OUTPUT_DIR", "output"),
         log_dir=os.getenv("LOG_DIR", "logs"),
+        max_concurrent_runs=int(os.getenv("MAX_CONCURRENT_RUNS", "3")),
     )
 
     # Ensure output directories exist

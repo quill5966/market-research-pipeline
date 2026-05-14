@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: market-research-server
+    runtime: python
+    plan: starter
+    rootDir: server
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        fromService:
+          type: web
+          name: market-research-client
+          property: host
+
+  - type: web
+    name: market-research-client
+    runtime: static
+    rootDir: client
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: market-research-server
+          property: host
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

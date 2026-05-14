@@ -15,7 +15,8 @@ from prompts.system import build_system_prompt
 def group_results(
     client: AgentClient,
     results: list[SearchResult],
-    domain_description: str,
+    product_name: str,
+    product_context: str,
 ) -> GroupingResult:
     """Group search results by story and select best sources.
 
@@ -25,7 +26,8 @@ def group_results(
     Args:
         client: AgentClient for LLM calls.
         results: Deduped search results from Phase 2.
-        domain_description: The product domain being researched.
+        product_name: Short product label being researched.
+        product_context: Multi-line product context for the system prompt.
 
     Returns:
         GroupingResult with selected groups and discard count.
@@ -48,8 +50,8 @@ def group_results(
     print(f"🔍 Grouper: processing {len(with_content)} results with article content...")
 
     # Build prompts
-    system_prompt = build_system_prompt(domain_description)
-    user_message = build_grouping_prompt(with_content, domain_description)
+    system_prompt = build_system_prompt(product_name, product_context)
+    user_message = build_grouping_prompt(with_content, product_name)
 
     # Make LLM call
     raw_response = client.call(

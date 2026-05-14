@@ -6,7 +6,8 @@
 // --- API models ---
 
 export interface RunRequest {
-  domain_description: string;
+  product_name: string;
+  product_context: string;
   search_terms: string[];
   include_domains?: string[];
   exclude_domains?: string[];
@@ -54,12 +55,6 @@ export interface Story {
   filter_tags: string[];
 }
 
-export interface WatchlistItem {
-  topic: string;
-  signal: string;
-  source_domain: string;
-}
-
 export interface ActionItem {
   rank: number;
   text: string;
@@ -93,7 +88,6 @@ export interface Brief {
   highlights: Highlight[];
   executive_summary: string;
   sections: Section[];
-  watchlist: WatchlistItem[];
   action_items: ActionItem[];
   sources: Source[];
 }

@@ -54,7 +54,8 @@ class RunConfig(BaseModel):
     log_dir: str
 
     # From RunRequest (user-supplied via UI form)
-    domain_description: str
+    product_name: str
+    product_context: str
     search_terms: list[str]
     include_domains: list[str] = []
     exclude_domains: list[str] = []
@@ -161,7 +162,8 @@ def build_run_config(server: ServerConfig, request) -> RunConfig:
         output_dir=server.output_dir,
         log_dir=server.log_dir,
         # From request
-        domain_description=request.domain_description,
+        product_name=request.product_name,
+        product_context=request.product_context,
         search_terms=request.search_terms,
         include_domains=request.include_domains,
         exclude_domains=request.exclude_domains,

@@ -21,7 +21,8 @@ export function NewRunScreen({ formState, onFormChange }: NewRunScreenProps) {
   const navigate = useNavigate();
 
   const {
-    domain,
+    productName,
+    productContext,
     searchTerms,
     includeDomains,
     excludeDomains,
@@ -30,7 +31,8 @@ export function NewRunScreen({ formState, onFormChange }: NewRunScreenProps) {
     dedupTitleSimilarity,
     dedupSnippetSimilarity,
   } = formState;
-  const setDomain = (v: string) => onFormChange({ ...formState, domain: v });
+  const setProductName = (v: string) => onFormChange({ ...formState, productName: v });
+  const setProductContext = (v: string) => onFormChange({ ...formState, productContext: v });
   const setSearchTerms = (v: string[]) => onFormChange({ ...formState, searchTerms: v });
   const setIncludeDomains = (v: string[]) => onFormChange({ ...formState, includeDomains: v });
   const setExcludeDomains = (v: string[]) => onFormChange({ ...formState, excludeDomains: v });
@@ -43,7 +45,10 @@ export function NewRunScreen({ formState, onFormChange }: NewRunScreenProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isValid = domain.trim().length >= 10 && searchTerms.length >= 1;
+  const isValid =
+    productName.trim().length >= 2 &&
+    productContext.trim().length >= 10 &&
+    searchTerms.length >= 1;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -79,7 +84,8 @@ export function NewRunScreen({ formState, onFormChange }: NewRunScreenProps) {
 
     try {
       const result = await createRun({
-        domain_description: domain.trim(),
+        product_name: productName.trim(),
+        product_context: productContext.trim(),
         search_terms: searchTerms,
         include_domains: includeDomains,
         exclude_domains: excludeDomains,
@@ -103,19 +109,40 @@ export function NewRunScreen({ formState, onFormChange }: NewRunScreenProps) {
         <form onSubmit={handleSubmit}>
           <div className="field">
             <div className="field-label">
-              <span className="label-text">Domain description</span>
+              <span className="label-text">Product name</span>
             </div>
             <p className="field-help">
-              Describe the product domain you want to research. Be specific — this
-              guides the AI's analysis and synthesis.
+              Short label for your product or company. Used as the brief title.
+            </p>
+            <input
+              id="product-name"
+              className="field-input"
+              type="text"
+              value={productName}
+              onChange={(e) => setProductName(e.target.value)}
+              placeholder="e.g., Acme DB"
+              maxLength={80}
+            />
+          </div>
+
+          <div className="field">
+            <div className="field-label">
+              <span className="label-text">Product context</span>
+              <span className="field-counter">
+                {productContext.length} / 2000
+              </span>
+            </div>
+            <p className="field-help">
+              Mission, target customer, current roadmap bets, your PM role. The more
+              specific this is, the sharper the next-step ideas will be.
             </p>
             <textarea
-              id="domain-description"
+              id="product-context"
               className="field-textarea"
-              value={domain}
-              onChange={(e) => setDomain(e.target.value)}
-              placeholder="e.g., Enterprise identity and access management (IAM)"
-              rows={2}
+              value={productContext}
+              onChange={(e) => setProductContext(e.target.value.slice(0, 2000))}
+              placeholder={`e.g., Acme DB is a managed Postgres for fintech startups. Our wedge is row-level security and audit logging out of the box. Current bets: SOC 2 automation, multi-region replication. I PM the security and compliance workstream — buyer is the head of platform/infra at a Series A–C fintech.`}
+              rows={6}
             />
           </div>
 

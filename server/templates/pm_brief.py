@@ -33,7 +33,7 @@ BRIEF_JSON_SCHEMA = """{
   "sections": [
     {
       "type": "list | summary | callout | quote",
-      "title": "string — section heading (e.g., 'Competitor Moves', 'Outlook', 'One thing to watch')",
+      "title": "string — section heading (e.g., 'Competitor Moves', 'Market & Macro', 'Customer & Buyer Signals', 'Technology & Ecosystem')",
       "content_md": "string OR null — markdown prose for type=summary/callout/quote, or an optional lede for type=list. Null if not used.",
       "stories": [
         {
@@ -49,13 +49,6 @@ BRIEF_JSON_SCHEMA = """{
         }
       ],
       "source_urls": ["all source URLs cited in this section"]
-    }
-  ],
-  "watchlist": [
-    {
-      "topic": "string — bolded prefix, ≤4 words",
-      "signal": "string — the signal in ≤20 words",
-      "source_domain": "string"
     }
   ],
   "action_items": [
@@ -79,11 +72,11 @@ BRIEF_JSON_SCHEMA = """{
 SECTION_GUIDANCE = """Section types and when to use each:
 
 - `list`: a cluster of 1–N stories surfaced as discrete entries. The workhorse for Competitor Moves, Market & Macro, Customer & Buyer Signals, Technology & Ecosystem, or any other thematic cluster. Each story has headline / TL;DR / PM angle / optional supporting / filter_tags. Use this whenever the material justifies discrete cards.
-- `summary`: a short prose paragraph (≤80 words) that frames or concludes a theme without earning its own story cards. Good for an "Outlook" closer or a mid-brief framing note.
-- `callout`: a set-apart attention block (1–3 sentences). Use for "One thing to watch", "What changed since last week", or a single high-importance insight that punches above neighboring list entries.
+- `summary`: a short prose paragraph (≤80 words) that frames a mid-brief transition between thematic clusters. Use sparingly.
+- `callout`: a set-apart attention block (1–3 sentences). Use only for a single high-importance insight that punches above neighboring list entries.
 - `quote`: a single pull quote with attribution on its own line (format: `"…" — Name, Title (source.com)`). Use only when one quote frames the period better than any TL;DR.
 
-Section order is reading order — put the highest-impact section first. Omit any section type you have no material for. You may add an AGENT-IDENTIFIED section with any title when material doesn't fit a conventional cluster.
+Section order is reading order — put the highest-impact section first. Omit any section type you have no material for. Do NOT add forward-looking "Outlook", "One thing to watch", or "Watchlist" sections — the brief should end with its last thematic cluster.
 """
 
 
@@ -140,16 +133,9 @@ def render_brief_markdown(brief: Brief) -> str:
         # summary/callout/quote already rendered via content_md above
         parts.append("")
 
-    # Watchlist
-    if brief.watchlist:
-        parts.append("## Watchlist")
-        for item in brief.watchlist:
-            parts.append(f"- **{item.topic}:** {item.signal} (*source: {item.source_domain}*)")
-        parts.append("")
-
     # Action items
     if brief.action_items:
-        parts.append("## PM Action Items")
+        parts.append("## Ideas for PM Next Steps")
         for item in sorted(brief.action_items, key=lambda x: x.rank):
             parts.append(f"{item.rank}. {item.text} ({item.pointer_section})")
         parts.append("")

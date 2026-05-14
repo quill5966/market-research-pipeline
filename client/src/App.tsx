@@ -21,7 +21,8 @@ import {
 } from './constants';
 
 export interface FormState {
-  domain: string;
+  productName: string;
+  productContext: string;
   searchTerms: string[];
   includeDomains: string[];
   excludeDomains: string[];
@@ -32,7 +33,8 @@ export interface FormState {
 }
 
 const INITIAL_FORM: FormState = {
-  domain: '',
+  productName: '',
+  productContext: '',
   searchTerms: [],
   includeDomains: DEFAULT_INCLUDE_DOMAINS,
   excludeDomains: DEFAULT_EXCLUDE_DOMAINS,

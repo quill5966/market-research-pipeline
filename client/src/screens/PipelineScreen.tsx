@@ -76,7 +76,7 @@ export function PipelineScreen() {
         {run && (
           <>
             <div className="running-header">
-              <h1 className="running-title">{run.request.domain_description}</h1>
+              <h1 className="running-title">{run.request.product_name}</h1>
               <div className="running-meta">
                 {run.request.search_terms.length} search terms · Claude Sonnet 4.6
               </div>

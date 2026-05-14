@@ -131,8 +131,7 @@ export function BriefScreen() {
 
   const validSectionIds = new Set<string>([
     ...brief.sections.map((s) => sectionId(s.title)),
-    ...(brief.watchlist.length > 0 ? [sectionId('Watchlist')] : []),
-    ...(brief.action_items.length > 0 ? [sectionId('PM Action Items')] : []),
+    ...(brief.action_items.length > 0 ? [sectionId('Ideas for PM Next Steps')] : []),
     ...(brief.sources.length > 0 ? [sectionId('Sources')] : []),
   ]);
 
@@ -302,33 +301,12 @@ export function BriefScreen() {
           </div>
         ))}
 
-        {/* Watchlist */}
-        {!activeTag && brief.watchlist.length > 0 && (
-          <>
-            <div className="section-heading" id={sectionId('Watchlist')}>
-              <a className="section-heading-text" href={`#${sectionId('Watchlist')}`}>
-                Watchlist
-              </a>
-              <span className="section-heading-rule" />
-            </div>
-            {brief.watchlist.map((item, i) => (
-              <div key={i} className="watchlist-item">
-                <span className="watchlist-bullet">→</span>
-                <span>
-                  <span className="watchlist-topic">{item.topic}</span> — {item.signal}
-                  <span className="watchlist-source"> ({item.source_domain})</span>
-                </span>
-              </div>
-            ))}
-          </>
-        )}
-
         {/* Action items */}
         {!activeTag && brief.action_items.length > 0 && (
           <>
-            <div className="section-heading" id={sectionId('PM Action Items')}>
-              <a className="section-heading-text" href={`#${sectionId('PM Action Items')}`}>
-                PM Action Items
+            <div className="section-heading" id={sectionId('Ideas for PM Next Steps')}>
+              <a className="section-heading-text" href={`#${sectionId('Ideas for PM Next Steps')}`}>
+                Ideas for PM Next Steps
               </a>
               <span className="section-heading-rule" />
             </div>

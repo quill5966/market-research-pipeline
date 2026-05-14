@@ -69,12 +69,12 @@ def execute_pipeline(run: Run, config: RunConfig) -> None:
     """
     try:
         run.status = "running"
-        pipeline_run_id = generate_run_id(config.domain_description)
+        pipeline_run_id = generate_run_id(config.product_name)
 
         # Initialize tracking
         tracker = TokenTracker(
             run_id=pipeline_run_id,
-            domain=config.domain_description,
+            domain=config.product_name,
             model=config.model,
             token_budget=config.token_budget,
             log_dir=config.log_dir,
@@ -110,7 +110,7 @@ def execute_pipeline(run: Run, config: RunConfig) -> None:
         # --- Stage 3: Group ---
         t0 = time.time()
         _update_stage(run, "group", "active", "Grouping by story...")
-        grouping_result = group_results(client, deduped, config.domain_description)
+        grouping_result = group_results(client, deduped, config.product_name, config.product_context)
         _update_stage(
             run, "group", "done",
             f"{len(grouping_result.groups)} distinct stories identified",
@@ -129,7 +129,7 @@ def execute_pipeline(run: Run, config: RunConfig) -> None:
             )
 
         notes = extract_articles(
-            client, grouping_result, deduped, config.domain_description,
+            client, grouping_result, deduped, config.product_name, config.product_context,
             progress_callback=on_extract_progress,
         )
         _update_stage(
@@ -150,11 +150,11 @@ def execute_pipeline(run: Run, config: RunConfig) -> None:
         _update_stage(run, "synthesize", "active", "Generating brief...")
         run_date = datetime.now().strftime("%Y-%m-%d")
 
-        brief = synthesize_brief(client, notes, config.domain_description, run_date)
+        brief = synthesize_brief(client, notes, config.product_name, config.product_context, run_date)
 
         if brief:
             # Override LLM-supplied counts with deterministic values
-            brief.title = config.domain_description
+            brief.title = config.product_name
             brief.date = run_date
             brief.source_count = len({sr.source_domain for sr in deduped})
             brief.story_count = sum(len(s.stories) for s in brief.sections)

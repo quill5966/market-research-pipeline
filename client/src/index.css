@@ -173,6 +173,13 @@ body {
   font-size: 12px;
 }
 
+.field-counter {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+}
+
 .btn-clear-all {
   background: none;
   border: none;
@@ -677,35 +684,6 @@ a.section-heading-text:hover {
 
 .explore-btn .ti { font-size: 13px; }
 
-/* Watchlist */
-
-.watchlist-item {
-  display: flex;
-  gap: 14px;
-  padding: 8px 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--ink);
-  border-bottom: 1px dotted var(--rule);
-}
-
-.watchlist-item:last-child { border-bottom: none; }
-
-.watchlist-bullet {
-  color: var(--accent);
-  font-family: var(--font-display);
-  font-style: italic;
-  flex-shrink: 0;
-}
-
-.watchlist-topic { font-weight: 500; }
-
-.watchlist-source {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--ink-faint);
-  margin-left: 4px;
-}
 
 /* Action items */
 

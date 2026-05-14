@@ -8,7 +8,7 @@ Model groups:
 - Search & dedup: SearchResult, DedupStats
 - Agent steps: GroupedStory, GroupingResult, ThematicTag, ExtractionNote
 - API: RunRequest, Stage, Run
-- Brief: Highlight, Story, WatchlistItem, ActionItem, Source, Brief
+- Brief: Highlight, Story, ActionItem, Source, Brief
 """
 
 from datetime import datetime
@@ -125,7 +125,8 @@ class ExtractionNote(BaseModel):
 class RunRequest(BaseModel):
     """Request body for POST /api/runs — submitted from the UI form."""
 
-    domain_description: str  # required, 10-500 chars
+    product_name: str  # required, short label used for title/filename/prompt grammar
+    product_context: str  # required, multi-line description of mission, customer, bets, PM role
     search_terms: list[str]  # required, 1-10 items
     include_domains: list[str] = []  # optional
     exclude_domains: list[str] = []  # optional
@@ -136,14 +137,24 @@ class RunRequest(BaseModel):
     dedup_snippet_similarity: float
     # Note: token_budget is NOT here — it's server config only
 
-    @field_validator("domain_description")
+    @field_validator("product_name")
     @classmethod
-    def domain_description_length(cls, v: str) -> str:
+    def product_name_length(cls, v: str) -> str:
+        v = v.strip()
+        if len(v) < 2:
+            raise ValueError("product_name must be at least 2 characters")
+        if len(v) > 80:
+            raise ValueError("product_name must be at most 80 characters")
+        return v
+
+    @field_validator("product_context")
+    @classmethod
+    def product_context_length(cls, v: str) -> str:
         v = v.strip()
         if len(v) < 10:
-            raise ValueError("domain_description must be at least 10 characters")
-        if len(v) > 500:
-            raise ValueError("domain_description must be at most 500 characters")
+            raise ValueError("product_context must be at least 10 characters")
+        if len(v) > 2000:
+            raise ValueError("product_context must be at most 2000 characters")
         return v
 
     @field_validator("search_terms")
@@ -204,14 +215,6 @@ class Story(BaseModel):
     filter_tags: list[str] = []  # From closed vocabulary — powers UI filtering
 
 
-class WatchlistItem(BaseModel):
-    """Watchlist entry in the brief."""
-
-    topic: str  # Bolded prefix
-    signal: str  # The body
-    source_domain: str
-
-
 class ActionItem(BaseModel):
     """PM action item in the brief."""
 
@@ -251,6 +254,5 @@ class Brief(BaseModel):
     highlights: list[Highlight]
     executive_summary: str
     sections: list[Section]  # Ordered; synthesizer decides which sections exist
-    watchlist: list[WatchlistItem]
     action_items: list[ActionItem]
     sources: list[Source]

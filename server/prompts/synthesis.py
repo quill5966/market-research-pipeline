@@ -10,7 +10,7 @@ from tagging.vocabulary import FILTER_TAG_VOCABULARY
 
 def build_synthesis_prompt(
     notes: list[ExtractionNote],
-    domain_description: str,
+    product_name: str,
     brief_schema: str,
     section_guidance: str,
     run_date: str,
@@ -19,7 +19,7 @@ def build_synthesis_prompt(
 
     Args:
         notes: All extraction notes from the extraction step.
-        domain_description: The product domain being researched.
+        product_name: Short product label being researched.
         brief_schema: The BRIEF_JSON_SCHEMA string describing the target JSON shape.
         section_guidance: The SECTION_GUIDANCE string describing section types.
         run_date: Current date string (YYYY-MM-DD) for the brief header.
@@ -37,7 +37,7 @@ def build_synthesis_prompt(
 
     vocab_list = ", ".join(FILTER_TAG_VOCABULARY)
 
-    return f"""You have {len(notes)} structured extraction notes from recent news articles about {domain_description}. Synthesize them into a complete PM brief, emitted as a JSON object matching the schema below.
+    return f"""You have {len(notes)} structured extraction notes from recent news articles relevant to {product_name}. Synthesize them into a complete PM brief, emitted as a JSON object matching the schema below. Use the product context in the system prompt to keep the brief grounded in this product's specific situation.
 
 TARGET SCHEMA:
 {brief_schema}
@@ -63,11 +63,14 @@ SYNTHESIS INSTRUCTIONS:
    - **highlights:** three entries ranked 1–3. Each names the most consequential items this scan period. `pointer_section` must exactly match a section `title` you used.
    - **executive_summary:** exactly two sentences, ≤60 words total. Sentence 1 names the dominant theme; sentence 2 states its consequence for a PM. No semicolons, no parentheticals, no embedded lists. This is a frame, not a digest.
 
-6. **PM action items.** 2–5 items. Each item is one imperative sentence ≤20 words, with `pointer_section` matching the triggering section title and `pointer_story_id` set to the triggering story's id when applicable. Generic advice like "monitor the competitive landscape" is NOT acceptable.
+6. **PM action items.** 2–5 items. Each item is one imperative sentence ≤20 words, grounded in the product context from the system prompt (target customer, current bets, PM responsibility). Each item has `pointer_section` matching the triggering section title and `pointer_story_id` set to the triggering story's id when applicable. Bias toward these action types (treat as suggestions, not strict tags — include only those genuinely warranted by the week's news):
+   - **Customer/user research questions** — specific hypotheses to validate or segments to interview given the signal.
+   - **Roadmap considerations** — concrete features, scope changes, or sequencing bets to weigh against the product's current direction.
+   - **Competitive responses** — how {product_name} should counter or differentiate against a specific competitor move.
+   - **Positioning & messaging** — narrative, sales-enablement, or marketing-positioning updates implied by the signal.
+   Generic advice like "monitor the competitive landscape" or "brief the team" is NOT acceptable. Name the specific product area, competitor, segment, or customer cohort involved.
 
-7. **Watchlist.** One line per item (≤25 words). Surface PM-relevant gaps from the extraction notes when they represent meaningful blind spots.
-
-8. **Sources.** Populate the global `sources` list with every URL referenced by any story or watchlist item. Set `referenced_in` to the section title(s) where the URL appears. Per-section `source_urls` repeats those URLs grouped by section.
+7. **Sources.** Populate the global `sources` list with every URL referenced by any story. Set `referenced_in` to the section title(s) where the URL appears. Per-section `source_urls` repeats those URLs grouped by section.
 
 FILTER TAGS (closed vocabulary):
 The allowed filter_tags vocabulary is: {vocab_list}
@@ -77,7 +80,7 @@ For each story you create, set `filter_tags` to the union of the `filter_tags` a
 OUTPUT FORMAT:
 Respond with a single JSON object matching the schema. Do NOT wrap it in code fences. Do NOT include any prose before or after the JSON. Set `raw_markdown` to an empty string — the server renders it.
 
-Replace the placeholder `title` with "{domain_description}" and `date` with "{run_date}".
+Replace the placeholder `title` with "{product_name}" and `date` with "{run_date}".
 
 EXTRACTION NOTES:
 {notes_json}"""

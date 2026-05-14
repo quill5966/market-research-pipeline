@@ -19,7 +19,8 @@ def extract_articles(
     client: AgentClient,
     groups: GroupingResult,
     results: list[SearchResult],
-    domain_description: str,
+    product_name: str,
+    product_context: str,
     progress_callback: Callable[[int, int], None] | None = None,
 ) -> list[ExtractionNote]:
     """Extract structured notes from each selected article.
@@ -32,7 +33,8 @@ def extract_articles(
         client: AgentClient for LLM calls.
         groups: GroupingResult from the grouping step.
         results: Deduped search results (used for URL→article lookup).
-        domain_description: The product domain being researched.
+        product_name: Short product label being researched.
+        product_context: Multi-line product context for the system prompt.
         progress_callback: Optional callback(completed, total) for progress updates.
 
     Returns:
@@ -46,7 +48,7 @@ def extract_articles(
     # Build URL → SearchResult lookup
     url_lookup: dict[str, SearchResult] = {r.url: r for r in results}
 
-    system_prompt = build_system_prompt(domain_description)
+    system_prompt = build_system_prompt(product_name, product_context)
     notes: list[ExtractionNote] = []
     total = len(groups.groups)
     skipped_budget = 0
@@ -70,7 +72,7 @@ def extract_articles(
             title=sr.title,
             source=sr.source_domain,
             url=sr.url,
-            domain_description=domain_description,
+            product_name=product_name,
             group_label=group.group_label,
         )
 

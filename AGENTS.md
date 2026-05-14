@@ -110,7 +110,7 @@ CORS is currently locked to `http://localhost:5173` (Vite dev server) in `server
 
 ### Config (two layers)
 - **`ServerConfig`** (server-level) — `ANTHROPIC_API_KEY`, `TAVILY_API_KEY`, `MODEL`, `TOKEN_BUDGET`, `OUTPUT_DIR`, `LOG_DIR`. Loaded from `.env.local` (falls back to `.env`) at startup by `load_server_config()`. API keys are the only *required* values; everything else has a default.
-- **`RunConfig`** (per-run) — built by `build_run_config(server, request)` for each `POST /api/runs`. Merges server-level values with the UI-supplied `RunRequest` fields: `domain_description`, `search_terms`, `include_domains`, `exclude_domains`, `max_results_per_term`, `max_article_chars`, `dedup_title_similarity`, `dedup_snippet_similarity`.
+- **`RunConfig`** (per-run) — built by `build_run_config(server, request)` for each `POST /api/runs`. Merges server-level values with the UI-supplied `RunRequest` fields: `product_name`, `product_context`, `search_terms`, `include_domains`, `exclude_domains`, `max_results_per_term`, `max_article_chars`, `dedup_title_similarity`, `dedup_snippet_similarity`.
 - **Per-run things now come from the UI form**, not env vars. Do not re-add `DOMAIN_DESCRIPTION` / `SEARCH_TERMS` to `ServerConfig`.
 - `output/` and `logs/` directories are auto-created on `load_server_config()`.
 - Pydantic validators enforce types and ranges (token budget > 0, similarities in `[0, 1]`, etc.).
@@ -139,7 +139,7 @@ CORS is currently locked to `http://localhost:5173` (Vite dev server) in `server
   - Search & dedup: `SearchResult`, `DedupStats`
   - Agent steps: `GroupedStory`, `GroupingResult`, `ThematicTag`, `ExtractionNote`
   - API: `RunRequest`, `Stage`, `Run`
-  - Brief: `Highlight`, `Story`, `WatchlistItem`, `ActionItem`, `Source`, `Brief`
+  - Brief: `Highlight`, `Story`, `ActionItem`, `Source`, `Brief`
 - TypeScript counterparts in `client/src/types/models.ts` should be kept in sync when server models change.
 
 ### Search
@@ -166,7 +166,7 @@ CORS is currently locked to `http://localhost:5173` (Vite dev server) in `server
 - `runs: dict[str, Run]` in `server.py` is an in-memory store — it does **not** persist across restarts. If you need durability, this is the seam to add it.
 - `execute_pipeline` runs in a daemon `Thread`. It mutates `Run.status`, `Run.stages[*].status/detail/elapsed_ms`, `Run.brief`, and `Run.error` directly — those mutations are what the client sees via polling.
 - Stage names are fixed: `["search", "dedup", "group", "extract", "synthesize"]` (see `STAGE_NAMES`). The `Stage.name` Literal in `models.py` must match.
-- `Brief.raw_markdown` is currently the source of truth for the rendered brief. The structured `Brief` fields (`highlights`, `sections`, `watchlist`, etc.) are scaffolded but not yet populated by the pipeline (see TODO in `main.py`).
+- `Brief.raw_markdown` is currently the source of truth for the rendered brief. The structured `Brief` fields (`highlights`, `sections`, `action_items`, etc.) are scaffolded but not yet populated by the pipeline (see TODO in `main.py`).
 
 ## Running the Project
 

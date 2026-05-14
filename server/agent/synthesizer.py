@@ -16,7 +16,8 @@ from templates.pm_brief import BRIEF_JSON_SCHEMA, SECTION_GUIDANCE
 def synthesize_brief(
     client: AgentClient,
     notes: list[ExtractionNote],
-    domain_description: str,
+    product_name: str,
+    product_context: str,
     run_date: str,
 ) -> Brief | None:
     """Synthesize a structured PM Brief from extraction notes.
@@ -32,10 +33,10 @@ def synthesize_brief(
 
     print(f"\n📝 Synthesizer: generating brief from {len(notes)} extraction notes...")
 
-    system_prompt = build_system_prompt(domain_description)
+    system_prompt = build_system_prompt(product_name, product_context)
     user_message = build_synthesis_prompt(
         notes=notes,
-        domain_description=domain_description,
+        product_name=product_name,
         brief_schema=BRIEF_JSON_SCHEMA,
         section_guidance=SECTION_GUIDANCE,
         run_date=run_date,

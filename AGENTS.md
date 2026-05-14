@@ -54,10 +54,11 @@ market-research-pipeline/
 │   │   └── synthesizer.py     # LLM: generate PM brief markdown
 │   ├── prompts/               # system / grouping / extraction / synthesis builders
 │   ├── services/              # search.py (Tavily) + dedup.py
-│   ├── tracking/              # token_tracker.py — per-step usage + cost logging
+│   ├── tagging/               # vocabulary.py — closed filter_tag vocabulary
+│   ├── tracking/              # token_tracker.py (usage+cost) + discard_log.py
 │   ├── templates/             # pm_brief.py — brief template text
 │   ├── output/                # Generated briefs (gitignored)
-│   └── logs/                  # Per-run token usage JSON (gitignored)
+│   └── logs/                  # Per-run JSON: {id}.json (usage) + {id}.discards.json
 └── client/                    # Vite + React (TypeScript) frontend
     ├── index.html
     ├── package.json
@@ -88,7 +89,8 @@ Background thread: execute_pipeline(run, config)
   4. Agent: Extract → LLM extracts notes per article, 1-at-a-time (tokens)
   5. Agent: Synth → LLM generates PM brief markdown             (tokens)
   6. Output       → Write brief md to output/{run_id}.md        (deterministic)
-  7. Tracker      → Write JSON usage log to logs/{run_id}.json  (deterministic)
+  7. Logs         → Write logs/{run_id}.json (token usage) and
+                    logs/{run_id}.discards.json (dropped articles) (deterministic)
 
 The Run object (in the in-memory `runs` dict in server.py) is mutated
 in-place by the background thread, so GET /api/runs/:id reflects live
@@ -129,6 +131,11 @@ CORS is currently locked to `http://localhost:5173` (Vite dev server) in `server
 - Current pricing (Sonnet 4.6): `$3.00 / M` input, `$15.00 / M` output.
 - Each run produces `logs/{pipeline_run_id}.json` with a per-step breakdown.
 - `pipeline_run_id` (distinct from the API-level `Run.id` UUID) format: `{ISO timestamp}_{sanitized product_name}`, second-precision.
+- **Truncation telemetry.** Every `StepUsage` records `stop_reason` from the Anthropic response. `stop_reason == "max_tokens"` means the call hit its output cap and was truncated — `AgentClient.call()` prints a runtime warning naming the step + cap, and `TokenTracker.print_summary()` flags the row with `⚠ max_tokens`. Grep `logs/{run_id}.json` for `"stop_reason": "max_tokens"` to audit truncation after the fact.
+
+### Discard logging
+- `tracking/discard_log.py:write_discard_log()` writes `logs/{pipeline_run_id}.discards.json` after the grouping stage. Bucketed by stage: `dedup_url`, `dedup_title`, `dedup_snippet`, `group_no_content`, `group_llm_irrelevant`.
+- Inputs: `stats.discarded` from `services/dedup.py` + `grouping_result.discarded` from `agent/grouper.py`. Sibling to the token usage log; independent file so the two have separate consumers and sizes.
 
 ### JSON Parsing
 - Any LLM response expected as JSON must be parsed via `agent/json_utils.py:parse_llm_json()`. Handles code fences, preamble text, trailing commas.
@@ -136,7 +143,7 @@ CORS is currently locked to `http://localhost:5173` (Vite dev server) in `server
 ### Data Models
 - All shared data structures are Pydantic models in `server/models.py`. Groups:
   - Token tracking: `StepUsage`, `RunLog`
-  - Search & dedup: `SearchResult`, `DedupStats`
+  - Search & dedup: `SearchResult`, `DiscardedArticle`, `DedupStats`
   - Agent steps: `GroupedStory`, `GroupingResult`, `ThematicTag`, `ExtractionNote`
   - API: `RunRequest`, `Stage`, `Run`
   - Brief: `Highlight`, `Story`, `ActionItem`, `Source`, `Brief`
@@ -148,6 +155,7 @@ CORS is currently locked to `http://localhost:5173` (Vite dev server) in `server
 - Domain filtering via `include_domains` / `exclude_domains` from the RunRequest.
 - `raw_content` is truncated to `max_article_chars` (default 6,000).
 - Results with no `raw_content` are kept but flagged — downstream steps skip them.
+- After the search loop, `services/search.py` prints a `📏 raw_content: …` summary line — total articles with content, count truncated, the cap, and median/max original length. Use it to gauge whether `max_article_chars` is biting on a given run before opening logs.
 
 ### Dedup
 - Three-stage pipeline: exact URL → domain-title clustering → cross-domain snippet similarity.
@@ -158,11 +166,15 @@ CORS is currently locked to `http://localhost:5173` (Vite dev server) in `server
 
 ### Agent Steps
 - **Prompts:** `prompts/system.py` builds the shared system prompt from `product_name` (short label, used in prompt grammar) and `product_context` (multi-line block describing mission, target customer, current bets, PM responsibility). Every agent step inherits this system prompt. Each step has its own user-message builder in `prompts/`.
-- **Grouping (`agent/grouper.py`):** Filters out results with no `raw_content` before prompting. Groups by story arc, selects best source per group (cap ~15). Output validated as `GroupingResult` via `parse_llm_json()`.
-- **Extraction (`agent/extractor.py`):** Processes articles **one at a time** (not batched) to keep context small. Each call gets a unique `step_name` (`extraction_1`, `extraction_2`, ...). Accepts a `progress_callback(completed, total)` so the orchestrator can update stage detail live. Gracefully skips on parse failure or `TokenBudgetExceeded` and returns partial results.
+- **Grouping (`agent/grouper.py`):** Filters out results with no `raw_content` before prompting (those become `group_no_content` discards). Groups by story arc, selects best source per group (cap ~15). Results the LLM judges irrelevant become `group_llm_irrelevant` discards. Output validated as `GroupingResult` via `parse_llm_json()`; `grouping_result.discarded` is merged with dedup discards by the orchestrator and persisted via `write_discard_log`.
+- **Extraction (`agent/extractor.py`):** Processes articles **one at a time** (not batched) to keep context small. Each call gets a unique `step_name` (`extraction_1`, `extraction_2`, ...). Accepts a `progress_callback(completed, total)` so the orchestrator can update stage detail live. Gracefully skips on parse failure or `TokenBudgetExceeded` and returns partial results. After parsing each note, `filter_tags` are intersected with `tagging/vocabulary.py:FILTER_TAG_VOCABULARY` — unknown tags are dropped.
 - **Synthesis (`agent/synthesizer.py`):** Emits a structured `Brief` **JSON** object (validated against the Pydantic `Brief` model). Uses `max_tokens=8192`. The server then renders markdown server-side via `templates/pm_brief.py:render_brief_markdown()` from the structured brief and writes it to `output/{pipeline_run_id}.md`; the same string is also stored on `Run.brief.raw_markdown`.
 - **Synthesis prompt — PM action items bias.** The synthesis prompt biases action items toward four categories (treat as suggestions, not strict tags): **customer/user research questions**, **roadmap considerations**, **competitive responses**, **positioning & messaging**. Each item must be grounded in `product_context` and name a specific product area, competitor, segment, or customer cohort — no generic "monitor the landscape" advice. UI surfaces these under the heading "Ideas for PM Next Steps".
 - **Intentionally absent sections.** "Watchlist", "Outlook", and "One thing to watch" were removed from the schema and prompts. The brief should end with its last thematic cluster. Do **not** re-introduce them without an explicit product decision; the synthesis prompt and `templates/pm_brief.py` actively discourage them.
+
+### Tags: two distinct vocabularies
+- **`thematic_tags`** (`models.ThematicTag`, on `ExtractionNote`): free-form section labels the LLM assigns during extraction. Synthesis uses them to cluster notes into brief `Section`s.
+- **`filter_tags`** (`list[str]`, on `ExtractionNote` and `Story`): **closed vocabulary** from `tagging/vocabulary.py`. Default set: `competitive`, `acquisition`, `funding`, `product-launch`, `pricing`, `partnership`, `regulatory`, `security`, `leadership`, `earnings`, `open-source`, `standards`, `customer-signal`, `analyst`. Overridable via the `FILTER_TAG_VOCABULARY` env var (comma-separated). The extractor strips any LLM-supplied tag not in the vocabulary.
 
 ### Pipeline ↔ API integration
 - `runs: dict[str, Run]` in `server.py` is an in-memory store — it does **not** persist across restarts. If you need durability, this is the seam to add it.

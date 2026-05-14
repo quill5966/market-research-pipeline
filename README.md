@@ -96,10 +96,11 @@ market-research-pipeline/
 │   │   └── synthesizer.py      # LLM: generate PM brief
 │   ├── prompts/                # Prompt builders per pipeline step
 │   ├── services/               # Search + dedup
-│   ├── tracking/               # Token usage + cost logging
+│   ├── tagging/                # Closed vocabulary for filter_tags
+│   ├── tracking/               # Token usage + cost + discard logging
 │   ├── templates/              # Brief template
 │   ├── output/                 # Generated briefs (gitignored)
-│   └── logs/                   # Token usage logs (gitignored)
+│   └── logs/                   # Per-run JSON: token usage + discarded articles (gitignored)
 └── client/                     # Vite + React (TypeScript) frontend
     ├── index.html
     ├── package.json
@@ -125,7 +126,7 @@ market-research-pipeline/
 
 ## Cost & Token Tracking
 
-Every run produces a JSON log in `server/logs/` with a per-step breakdown of token usage and estimated cost. The pipeline enforces a configurable `TOKEN_BUDGET` — if a step would exceed the budget, it raises an exception and saves partial results.
+Every run produces a JSON log in `server/logs/` with a per-step breakdown of token usage and estimated cost. Each step also records the Anthropic `stop_reason`, so output truncation (`max_tokens` hits) is visible after the fact — grep for `"stop_reason": "max_tokens"`. A sibling `{run_id}.discards.json` captures articles dropped during dedup and grouping. The pipeline enforces a configurable `TOKEN_BUDGET` — if a step would exceed the budget, it raises an exception and saves partial results.
 
 Current pricing (Claude Sonnet 4.6): **$3.00 / M input tokens**, **$15.00 / M output tokens**.
 

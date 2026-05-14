@@ -73,7 +73,7 @@ Server-level configuration lives in `server/.env.local`. Per-run parameters — 
 | `TAVILY_API_KEY` | ✅ | — | Tavily API key |
 | `APP_PASSCODE` | ✅ | — | Shared passcode that gates the UI and API (≥8 chars; use ≥16 random chars in production) |
 | `MODEL` | | `claude-sonnet-4-6` | Anthropic model ID |
-| `TOKEN_BUDGET` | | `50000` | Max input tokens per run |
+| `TOKEN_BUDGET` | | `200000` | Max input tokens per run |
 | `MAX_CONCURRENT_RUNS` | | `3` | Max simultaneous pipeline runs across the server (extra POSTs get a 429) |
 | `ALLOWED_ORIGINS` | | `http://localhost:5173` | Comma-separated CORS origins. `*` is rejected at startup |
 | `OUTPUT_DIR` | | `output` | Directory for generated briefs |
@@ -155,7 +155,7 @@ Every run produces a JSON log in `server/logs/` with a per-step breakdown of tok
 
 Current pricing (Claude Sonnet 4.6): **$3.00 / M input tokens**, **$15.00 / M output tokens**.
 
-A typical run with 5 search terms costs roughly **$0.05–$0.15** depending on article count and content length.
+A typical run with 10 search terms costs roughly **$0.25–$0.50** depending on article count and content length.
 
 ## License
 

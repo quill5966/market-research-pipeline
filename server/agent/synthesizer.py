@@ -46,7 +46,7 @@ def synthesize_brief(
         step_name="synthesis",
         messages=[{"role": "user", "content": user_message}],
         system=system_prompt,
-        max_tokens=8192,
+        max_tokens=10000,
     )
 
     try:

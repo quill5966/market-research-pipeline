@@ -8,6 +8,7 @@ server/.env*
 server/output/
 server/logs/
 server/.venv/
+server/scripts/
 
 # Client
 client/node_modules/

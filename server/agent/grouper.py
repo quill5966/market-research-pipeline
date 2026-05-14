@@ -67,7 +67,7 @@ def group_results(
         step_name="grouping",
         messages=[{"role": "user", "content": user_message}],
         system=system_prompt,
-        max_tokens=2048,
+        max_tokens=10000,
     )
 
     # Parse and validate. The LLM emits `discarded` as [{url, reason}], which

@@ -82,7 +82,7 @@ def extract_articles(
                 step_name=f"extraction_{i+1}",
                 messages=[{"role": "user", "content": user_message}],
                 system=system_prompt,
-                max_tokens=5000,
+                max_tokens=10000,
             )
         except TokenBudgetExceeded as e:
             remaining = total - i

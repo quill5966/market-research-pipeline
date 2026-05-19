@@ -78,6 +78,7 @@ Server-level configuration lives in `server/.env.local`. Per-run parameters — 
 | `ALLOWED_ORIGINS` | | `http://localhost:5173` | Comma-separated CORS origins. `*` is rejected at startup |
 | `OUTPUT_DIR` | | `output` | Directory for generated briefs |
 | `LOG_DIR` | | `logs` | Directory for token usage logs |
+| `VITE_API_BASE_URL` | | `http://localhost:8000` | Client-side env var — backend URL for API calls. Set in `client/.env` or as a build-time env var on Render |
 
 ## Security
 
@@ -100,7 +101,9 @@ Other hardening already in place:
 ```
 market-research-pipeline/
 ├── AGENTS.md                   # LLM coding assistant context
+├── CLAUDE.md                   # Points to AGENTS.md
 ├── README.md
+├── render.yaml                 # Render deployment config (server + client)
 ├── .venv/                      # Python virtual environment (gitignored)
 ├── server/                     # FastAPI backend
 │   ├── server.py               # FastAPI app + API endpoints
@@ -108,6 +111,7 @@ market-research-pipeline/
 │   ├── config.py               # ServerConfig + RunConfig (Pydantic)
 │   ├── models.py               # All data models (Run, Brief, Story, etc.)
 │   ├── requirements.txt
+│   ├── runtime.txt             # Python version pin for Render
 │   ├── .env.local              # API keys (gitignored)
 │   ├── .env.example
 │   ├── agent/
@@ -121,20 +125,26 @@ market-research-pipeline/
 │   ├── tagging/                # Closed vocabulary for filter_tags
 │   ├── tracking/               # Token usage + cost + discard logging
 │   ├── templates/              # Brief template
+│   ├── scripts/                # Diagnostic scripts (inspect_tavily.py)
 │   ├── output/                 # Generated briefs (gitignored)
 │   └── logs/                   # Per-run JSON: token usage + discarded articles (gitignored)
 └── client/                     # Vite + React (TypeScript) frontend
     ├── index.html
     ├── package.json
-    ├── src/
-    │   ├── App.tsx             # Root component + routing
-    │   ├── main.tsx            # Entry point
-    │   ├── index.css           # Design system (tokens, components)
-    │   ├── api/client.ts       # Typed fetch wrapper for /api/runs
-    │   ├── types/models.ts     # TypeScript interfaces (mirrors server models)
-    │   ├── components/         # AppBar, PasscodeGate, PillInput, TagChip, StoryCard, PipelineStageList
-    │   └── screens/            # NewRunScreen, PipelineScreen, BriefScreen
-    └── node_modules/           # (gitignored)
+    ├── vite.config.ts
+    ├── eslint.config.js
+    ├── tsconfig.json / tsconfig.app.json / tsconfig.node.json
+    ├── public/                 # favicon.svg, icons.svg
+    └── src/
+        ├── App.tsx             # Root component + routing
+        ├── main.tsx            # Entry point
+        ├── index.css           # Design system (tokens, components)
+        ├── constants.ts        # Default form values (domains, thresholds)
+        ├── api/client.ts       # Typed fetch wrapper for /api/runs
+        ├── types/models.ts     # TypeScript interfaces (mirrors server models)
+        ├── assets/             # Static assets (hero.png, vite.svg)
+        ├── components/         # AppBar, PasscodeGate, PillInput, TagChip, StoryCard, PipelineStageList
+        └── screens/            # NewRunScreen, PipelineScreen, BriefScreen
 ```
 
 ## API Endpoints
@@ -156,6 +166,15 @@ Every run produces a JSON log in `server/logs/` with a per-step breakdown of tok
 Current pricing (Claude Sonnet 4.6): **$3.00 / M input tokens**, **$15.00 / M output tokens**.
 
 A typical run with 10 search terms costs roughly **$0.25–$0.50** depending on article count and content length.
+
+## Deployment
+
+The repo includes a `render.yaml` [Blueprint](https://render.com/docs/infrastructure-as-code) that deploys both services to Render:
+
+- **`market-research-server`** — Python web service running FastAPI via uvicorn. Set `ANTHROPIC_API_KEY`, `TAVILY_API_KEY`, `APP_PASSCODE`, and `ALLOWED_ORIGINS` as env vars in the Render dashboard.
+- **`market-research-client`** — Static site built with `npm run build`. Set `VITE_API_BASE_URL` to the server's public URL.
+
+The server exposes `/api/health` (no auth) for Render's health probe. `runtime.txt` pins the Python version.
 
 ## License
 

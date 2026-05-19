@@ -36,6 +36,7 @@ market-research-pipeline/
 ├── AGENTS.md                  # This file — LLM context
 ├── CLAUDE.md                  # Points to AGENTS.md
 ├── README.md                  # User-facing docs (setup + run)
+├── render.yaml                # Render deployment config (server + client)
 ├── .venv/                     # Python venv at repo root (gitignored)
 ├── mockups/                   # Static HTML mockups (design reference)
 ├── server/                    # FastAPI backend
@@ -44,6 +45,7 @@ market-research-pipeline/
 │   ├── config.py              # ServerConfig + RunConfig + load_server_config / build_run_config
 │   ├── models.py              # All Pydantic models (Run, Brief, SearchResult, etc.)
 │   ├── requirements.txt
+│   ├── runtime.txt            # Python version pin for Render (python-3.12.7)
 │   ├── .env.local             # API keys (gitignored)
 │   ├── .env.example
 │   ├── agent/
@@ -57,18 +59,24 @@ market-research-pipeline/
 │   ├── tagging/               # vocabulary.py — closed filter_tag vocabulary
 │   ├── tracking/              # token_tracker.py (usage+cost) + discard_log.py
 │   ├── templates/             # pm_brief.py — brief template text
+│   ├── scripts/               # Diagnostic scripts (inspect_tavily.py)
 │   ├── output/                # Generated briefs (gitignored)
 │   └── logs/                  # Per-run JSON: {id}.json (usage) + {id}.discards.json
 └── client/                    # Vite + React (TypeScript) frontend
     ├── index.html
     ├── package.json
     ├── vite.config.ts
+    ├── eslint.config.js
+    ├── tsconfig.json / tsconfig.app.json / tsconfig.node.json
+    ├── public/                # favicon.svg, icons.svg
     └── src/
         ├── App.tsx            # Root + react-router routes (/, /runs/:id, /runs/:id/brief)
         ├── main.tsx
         ├── index.css          # Design system (tokens + component styles)
+        ├── constants.ts       # Default form values (domains, thresholds)
         ├── api/client.ts      # Typed fetch wrapper for /api/runs + passcode helpers
         ├── types/models.ts    # TypeScript mirrors of server Pydantic models
+        ├── assets/            # Static assets (hero.png, vite.svg)
         ├── components/        # AppBar, PasscodeGate, PillInput, TagChip, StoryCard, PipelineStageList
         └── screens/           # NewRunScreen, PipelineScreen, BriefScreen
 ```
@@ -119,6 +127,7 @@ CORS origins come from `ALLOWED_ORIGINS` (comma-separated, default `http://local
 
 ### Config (two layers)
 - **`ServerConfig`** (server-level) — `ANTHROPIC_API_KEY`, `TAVILY_API_KEY`, `APP_PASSCODE`, `MODEL`, `TOKEN_BUDGET`, `MAX_CONCURRENT_RUNS`, `OUTPUT_DIR`, `LOG_DIR`. Loaded from `.env.local` (falls back to `.env`) at startup by `load_server_config()`. The three required values are the two API keys and `APP_PASSCODE` (min 8 chars). Everything else has a default.
+- **`ALLOWED_ORIGINS`** is read directly from the environment in `server.py` (not part of the Pydantic `ServerConfig`). Comma-separated list of CORS origins; defaults to `http://localhost:5173`. `*` is rejected at startup.
 - **`RunConfig`** (per-run) — built by `build_run_config(server, request)` for each `POST /api/runs`. Merges server-level values with the UI-supplied `RunRequest` fields: `product_name`, `product_context`, `search_terms`, `include_domains`, `exclude_domains`, `max_results_per_term`, `max_article_chars`, `dedup_title_similarity`, `dedup_snippet_similarity`.
 - **Per-run things now come from the UI form**, not env vars. Do not re-add `DOMAIN_DESCRIPTION` / `SEARCH_TERMS` to `ServerConfig`.
 - `output/` and `logs/` directories are auto-created on `load_server_config()`.
@@ -164,7 +173,7 @@ CORS origins come from `ALLOWED_ORIGINS` (comma-separated, default `http://local
   - Search & dedup: `SearchResult`, `DiscardedArticle`, `DedupStats`
   - Agent steps: `GroupedStory`, `GroupingResult`, `ThematicTag`, `ExtractionNote`
   - API: `RunRequest`, `Stage`, `Run`
-  - Brief: `Highlight`, `Story`, `ActionItem`, `Source`, `Brief`
+  - Brief: `Highlight`, `Story`, `ActionItem`, `Source`, `Section`, `Brief`
 - TypeScript counterparts in `client/src/types/models.ts` should be kept in sync when server models change.
 
 ### Search
@@ -185,8 +194,8 @@ CORS origins come from `ALLOWED_ORIGINS` (comma-separated, default `http://local
 ### Agent Steps
 - **Prompts:** `prompts/system.py` builds the shared system prompt from `product_name` (short label, used in prompt grammar) and `product_context` (multi-line block describing mission, target customer, current bets, PM responsibility). Every agent step inherits this system prompt. Each step has its own user-message builder in `prompts/`.
 - **Grouping (`agent/grouper.py`):** Filters out results with no `raw_content` before prompting (those become `group_no_content` discards). Groups by story arc, selects best source per group (cap ~15). Results the LLM judges irrelevant become `group_llm_irrelevant` discards. Output validated as `GroupingResult` via `parse_llm_json()`; `grouping_result.discarded` is merged with dedup discards by the orchestrator and persisted via `write_discard_log`.
-- **Extraction (`agent/extractor.py`):** Processes articles **one at a time** (not batched) to keep context small. Each call gets a unique `step_name` (`extraction_1`, `extraction_2`, ...). Accepts a `progress_callback(completed, total)` so the orchestrator can update stage detail live. Gracefully skips on parse failure or `TokenBudgetExceeded` and returns partial results. After parsing each note, `filter_tags` are intersected with `tagging/vocabulary.py:FILTER_TAG_VOCABULARY` — unknown tags are dropped.
-- **Synthesis (`agent/synthesizer.py`):** Emits a structured `Brief` **JSON** object (validated against the Pydantic `Brief` model). Uses `max_tokens=8192`. The server then renders markdown server-side via `templates/pm_brief.py:render_brief_markdown()` from the structured brief and writes it to `output/{pipeline_run_id}.md`; the same string is also stored on `Run.brief.raw_markdown`.
+- **Extraction (`agent/extractor.py`):** Processes articles **one at a time** (not batched) to keep context small. Each call gets a unique `step_name` (`extraction_1`, `extraction_2`, ...) and uses `max_tokens=10000`. Accepts a `progress_callback(completed, total)` so the orchestrator can update stage detail live. Gracefully skips on parse failure or `TokenBudgetExceeded` and returns partial results. After parsing each note, `filter_tags` are intersected with `tagging/vocabulary.py:FILTER_TAG_VOCABULARY` — unknown tags are dropped.
+- **Synthesis (`agent/synthesizer.py`):** Emits a structured `Brief` **JSON** object (validated against the Pydantic `Brief` model). Uses `max_tokens=10000`. The server then renders markdown server-side via `templates/pm_brief.py:render_brief_markdown()` from the structured brief and writes it to `output/{pipeline_run_id}.md`; the same string is also stored on `Run.brief.raw_markdown`.
 - **Synthesis prompt — PM action items bias.** The synthesis prompt biases action items toward four categories (treat as suggestions, not strict tags): **customer/user research questions**, **roadmap considerations**, **competitive responses**, **positioning & messaging**. Each item must be grounded in `product_context` and name a specific product area, competitor, segment, or customer cohort — no generic "monitor the landscape" advice. UI surfaces these under the heading "Ideas for PM Next Steps".
 - **Intentionally absent sections.** "Watchlist", "Outlook", and "One thing to watch" were removed from the schema and prompts. The brief should end with its last thematic cluster. Do **not** re-introduce them without an explicit product decision; the synthesis prompt and `templates/pm_brief.py` actively discourage them.
 

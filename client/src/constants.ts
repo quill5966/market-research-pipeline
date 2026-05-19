@@ -1,15 +1,49 @@
 export const DEFAULT_INCLUDE_DOMAINS: string[] = [
-  'bloomberg.com',
+  // General tech & enterprise
   'reuters.com',
+  'axios.com',
+  'techcrunch.com',
+  'theverge.com',
+  'arstechnica.com',
+  'zdnet.com',
+  'venturebeat.com',
+  'siliconangle.com',
+  'theregister.com',
+  'computerworld.com',
+  'infoworld.com',
+  'thenextweb.com',
+  // Business & markets
+  'cnbc.com',
+  'apnews.com',
+  'fastcompany.com',
+  'inc.com',
+  'fortune.com',
+  // Funding, M&A & competitive intel
+  'crunchbase.com',
+  'businesswire.com',
+  'prnewswire.com',
+  'globenewswire.com',
+  'geekwire.com',
+  'sifted.eu',
+  // Community
+  'news.ycombinator.com',
+];
+
+export const DEFAULT_EXCLUDE_DOMAINS: string[] = [
+  // Aggregators / low-quality
+  'finance.yahoo.com',
+  'msn.com',
+  'news.google.com',
+  'smartbrief.com',
+  'seekingalpha.com',
+  'medium.com',
+  // Paywalled sources (Tavily can't scrape usable raw_content)
+  'bloomberg.com',
   'wsj.com',
   'ft.com',
   'economist.com',
   'nytimes.com',
   'theinformation.com',
-  'axios.com',
-  'techcrunch.com',
-  'theverge.com',
-  'arstechnica.com',
   'wired.com',
   'platformer.news',
   'stratechery.com',
@@ -19,19 +53,6 @@ export const DEFAULT_INCLUDE_DOMAINS: string[] = [
   '451research.com',
   'cbinsights.com',
   'pitchbook.com',
-  'crunchbase.com',
-  'businesswire.com',
-  'prnewswire.com',
-  'news.ycombinator.com',
-];
-
-export const DEFAULT_EXCLUDE_DOMAINS: string[] = [
-  'finance.yahoo.com',
-  'msn.com',
-  'news.google.com',
-  'smartbrief.com',
-  'seekingalpha.com',
-  'medium.com',
 ];
 
 export const DEFAULT_MAX_RESULTS_PER_TERM = 10;

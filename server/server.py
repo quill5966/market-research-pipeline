@@ -5,19 +5,33 @@ Run with: uvicorn server:app --reload --port 8000
 """
 
 import hmac
+import logging
 import os
 import threading
 from datetime import datetime, timezone
 from threading import Thread
 from uuid import uuid4
 
+import anthropic
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
+from agent.client import AgentClient
+from agent.json_utils import parse_llm_json
 from config import build_run_config, load_server_config
-from main import execute_pipeline
-from models import Brief, Run, RunRequest, Stage
+from main import execute_pipeline, generate_run_id
+from models import (
+    Brief,
+    Run,
+    RunRequest,
+    Stage,
+    SuggestSearchTermsRequest,
+    SuggestSearchTermsResponse,
+)
+from prompts.search_terms import build_search_terms_prompt
+from prompts.system import build_system_prompt
+from tracking.token_tracker import TokenTracker
 
 # Load server config at startup
 server_config = load_server_config()
@@ -167,6 +181,78 @@ def get_run(run_id: str, _: None = Depends(require_passcode)) -> Run:
     if run_id not in runs:
         raise HTTPException(status_code=404, detail="Run not found")
     return runs[run_id]
+
+
+@app.post("/api/search-terms/suggest", response_model=SuggestSearchTermsResponse)
+def suggest_search_terms(
+    body: SuggestSearchTermsRequest,
+    _: None = Depends(require_passcode),
+) -> SuggestSearchTermsResponse:
+    """Suggest a starter set of search terms from product_name + product_context.
+
+    Used by the New Run screen to prefill the search-terms PillInput. The user
+    can still edit, add, or remove terms before submitting the run. Token usage
+    is logged separately from pipeline runs under
+    logs/{timestamp}_{sanitized_product_name}_searchterm.json.
+    """
+    log_run_id = f"{generate_run_id(body.product_name)}_searchterm"
+
+    tracker = TokenTracker(
+        run_id=log_run_id,
+        domain=body.product_name,
+        model=server_config.suggestion_model,
+        token_budget=50_000,
+        log_dir=server_config.log_dir,
+    )
+    client = AgentClient(
+        server_config.anthropic_api_key,
+        server_config.suggestion_model,
+        tracker,
+    )
+
+    try:
+        try:
+            raw = client.call(
+                step_name="suggest_search_terms",
+                messages=[{
+                    "role": "user",
+                    "content": build_search_terms_prompt(body.product_name, body.product_context),
+                }],
+                system=build_system_prompt(body.product_name, body.product_context),
+                max_tokens=1024,
+            )
+            parsed = parse_llm_json(raw)
+            raw_terms = parsed.get("suggested_terms", [])
+            if not isinstance(raw_terms, list):
+                raise ValueError("Response missing list-valued 'suggested_terms'")
+
+            cleaned: list[str] = []
+            seen: set[str] = set()
+            for term in raw_terms:
+                if not isinstance(term, str):
+                    continue
+                t = term.strip().lower()
+                if not t or t in seen:
+                    continue
+                seen.add(t)
+                cleaned.append(t)
+                if len(cleaned) >= 10:
+                    break
+
+            return SuggestSearchTermsResponse(suggested_terms=cleaned)
+
+        except (anthropic.APIError, ValueError, TypeError, KeyError):
+            logging.exception("Search-term suggestion failed for product %r", body.product_name)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Could not generate suggestions. Please add search terms manually.",
+            )
+    finally:
+        # Persist token usage regardless of outcome — a failed suggest call still costs money.
+        try:
+            tracker.save()
+        except Exception:
+            logging.exception("Failed to save search-term suggestion token log")
 
 
 @app.get("/api/runs/{run_id}/export")

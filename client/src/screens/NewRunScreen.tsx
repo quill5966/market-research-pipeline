@@ -9,7 +9,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppBar } from '../components/AppBar';
 import { PillInput } from '../components/PillInput';
-import { createRun } from '../api/client';
+import { createRun, suggestSearchTerms } from '../api/client';
 import type { FormState } from '../App';
 
 interface NewRunScreenProps {
@@ -44,6 +44,39 @@ export function NewRunScreen({ formState, onFormChange }: NewRunScreenProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
+
+  const canSuggest =
+    productName.trim().length >= 2 && productContext.trim().length >= 10;
+
+  async function handleSuggestSearchTerms() {
+    if (!canSuggest || suggesting) return;
+    setSuggesting(true);
+    setSuggestError(null);
+    try {
+      const suggestions = await suggestSearchTerms(
+        productName.trim(),
+        productContext.trim()
+      );
+      const existing = new Set(searchTerms.map((t) => t.toLowerCase()));
+      const merged = [...searchTerms];
+      for (const s of suggestions) {
+        const t = s.trim().toLowerCase();
+        if (t && !existing.has(t)) {
+          merged.push(t);
+          existing.add(t);
+        }
+      }
+      setSearchTerms(merged);
+    } catch (err) {
+      setSuggestError(
+        err instanceof Error ? err.message : 'Failed to suggest search terms'
+      );
+    } finally {
+      setSuggesting(false);
+    }
+  }
 
   const isValid =
     productName.trim().length >= 2 &&
@@ -149,6 +182,28 @@ export function NewRunScreen({ formState, onFormChange }: NewRunScreenProps) {
           <div className="field">
             <div className="field-label">
               <span className="label-text">Search terms</span>
+              <button
+                type="button"
+                className="btn-clear-all"
+                onClick={handleSuggestSearchTerms}
+                disabled={!canSuggest || suggesting}
+                title={
+                  canSuggest
+                    ? 'Generate suggested search terms from product name + context'
+                    : 'Fill in product name (≥2 chars) and product context (≥10 chars) first'
+                }
+              >
+                {suggesting ? (
+                  <>
+                    <i className="ti ti-loader-2" style={{ animation: 'spin 1s linear infinite' }} />
+                    {' '}Suggesting…
+                  </>
+                ) : (
+                  <>
+                    <i className="ti ti-sparkles" /> Suggest search terms
+                  </>
+                )}
+              </button>
             </div>
             <p className="field-help">
               Enter search queries to find relevant news. Press Enter or comma to add.
@@ -159,6 +214,12 @@ export function NewRunScreen({ formState, onFormChange }: NewRunScreenProps) {
               onChange={setSearchTerms}
               placeholder="e.g., enterprise SSO market"
             />
+            {suggestError && (
+              <div className="info-notice" style={{ marginTop: 8, borderLeft: '3px solid #b91c1c' }}>
+                <i className="ti ti-alert-circle" />
+                {suggestError}
+              </div>
+            )}
           </div>
 
           <div className="field">

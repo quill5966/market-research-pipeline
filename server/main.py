@@ -71,10 +71,11 @@ def execute_pipeline(run: Run, config: RunConfig) -> None:
     try:
         run.status = "running"
         pipeline_run_id = generate_run_id(config.product_name)
+        log_run_id = f"{pipeline_run_id}_pipelinerun"
 
         # Initialize tracking
         tracker = TokenTracker(
-            run_id=pipeline_run_id,
+            run_id=log_run_id,
             domain=config.product_name,
             model=config.model,
             token_budget=config.token_budget,
@@ -82,7 +83,7 @@ def execute_pipeline(run: Run, config: RunConfig) -> None:
         )
 
         # Initialize LLM client
-        client = AgentClient(config=config, tracker=tracker)
+        client = AgentClient(config.anthropic_api_key, config.model, tracker)
 
         # --- Stage 1: Search ---
         t0 = time.time()
@@ -120,7 +121,7 @@ def execute_pipeline(run: Run, config: RunConfig) -> None:
 
         # Persist discard log (dedup + grouping) for post-hoc review.
         write_discard_log(
-            pipeline_run_id=pipeline_run_id,
+            pipeline_run_id=log_run_id,
             discards=stats.discarded + grouping_result.discarded,
             log_dir=config.log_dir,
         )

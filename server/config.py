@@ -30,6 +30,10 @@ class ServerConfig(BaseModel):
     model: str = "claude-sonnet-4-6"
     token_budget: int = 200_000
 
+    # Smaller/cheaper model used to suggest search terms on the New Run screen
+    # before the pipeline runs. Must also have an entry in MODEL_PRICING.
+    suggestion_model: str = "claude-haiku-4-5-20251001"
+
     # Output paths
     output_dir: str = "output"
     log_dir: str = "logs"
@@ -154,6 +158,7 @@ def load_server_config(env_path: str | None = None) -> ServerConfig:
         app_passcode=os.getenv("APP_PASSCODE", ""),
         model=os.getenv("MODEL", "claude-sonnet-4-6"),
         token_budget=int(os.getenv("TOKEN_BUDGET", "200000")),
+        suggestion_model=os.getenv("SUGGESTION_MODEL", "claude-haiku-4-5-20251001"),
         output_dir=os.getenv("OUTPUT_DIR", "output"),
         log_dir=os.getenv("LOG_DIR", "logs"),
         max_concurrent_runs=int(os.getenv("MAX_CONCURRENT_RUNS", "3")),

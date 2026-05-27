@@ -19,7 +19,7 @@ A full-stack web app that searches the web for news related to a user-specified 
 
 **Server (Python 3.12+)**
 - **FastAPI** (`fastapi`, `uvicorn`) — HTTP API + ASGI server
-- **Anthropic SDK** (`anthropic`) — Claude (default `claude-sonnet-4-6`) for all LLM calls
+- **Anthropic SDK** (`anthropic`) — Claude for all LLM calls. Default pipeline model is `claude-sonnet-4-6`; the New Run screen's "Suggest search terms" button uses a cheaper model (`claude-haiku-4-5-20251001` by default) via `SUGGESTION_MODEL`.
 - **Pydantic v2** — config validation, data models, request/response schemas
 - **python-dotenv** — env file loading (`.env.local` → `.env` priority)
 - **Tavily** (`tavily-python`) — advanced web search with `include_raw_content=True` (no separate fetcher needed)
@@ -54,14 +54,16 @@ market-research-pipeline/
 │   │   ├── grouper.py         # LLM: group results by story
 │   │   ├── extractor.py       # LLM: per-article structured extraction
 │   │   └── synthesizer.py     # LLM: generate PM brief markdown
-│   ├── prompts/               # system / grouping / extraction / synthesis builders
+│   ├── prompts/               # system / grouping / extraction / synthesis / search_terms builders
 │   ├── services/              # search.py (Tavily) + dedup.py
 │   ├── tagging/               # vocabulary.py — closed filter_tag vocabulary
 │   ├── tracking/              # token_tracker.py (usage+cost) + discard_log.py
 │   ├── templates/             # pm_brief.py — brief template text
 │   ├── scripts/               # Diagnostic scripts (inspect_tavily.py)
 │   ├── output/                # Generated briefs (gitignored)
-│   └── logs/                  # Per-run JSON: {id}.json (usage) + {id}.discards.json
+│   └── logs/                  # Per-run JSON: {pipeline_run_id}_pipelinerun.json (usage)
+│                              #             + {pipeline_run_id}_pipelinerun.discards.json
+│                              #             + {timestamp}_{product}_searchterm.json (per Suggest call)
 └── client/                    # Vite + React (TypeScript) frontend
     ├── index.html
     ├── package.json
@@ -96,9 +98,13 @@ Background thread: execute_pipeline(run, config)
   3. Agent: Group → LLM groups snippets by story arc            (tokens)
   4. Agent: Extract → LLM extracts notes per article, 1-at-a-time (tokens)
   5. Agent: Synth → LLM generates PM brief markdown             (tokens)
-  6. Output       → Write brief md to output/{run_id}.md        (deterministic)
-  7. Logs         → Write logs/{run_id}.json (token usage) and
-                    logs/{run_id}.discards.json (dropped articles) (deterministic)
+  6. Output       → Write brief md to output/{pipeline_run_id}.md  (deterministic)
+  7. Logs         → Write logs/{pipeline_run_id}_pipelinerun.json (token usage) and
+                    logs/{pipeline_run_id}_pipelinerun.discards.json (dropped articles) (deterministic)
+
+Separately, POST /api/search-terms/suggest is a small synchronous Haiku call
+that runs *before* any pipeline. It writes its own
+logs/{timestamp}_{product}_searchterm.json with the same StepUsage shape.
 
 The Run object (in the in-memory `runs` dict in server.py) is mutated
 in-place by the background thread, so GET /api/runs/:id reflects live
@@ -110,6 +116,7 @@ stage progress as the client polls.
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `POST` | `/api/auth/check` | ✅ | Validates the supplied passcode and returns `{"ok": true}`. Used by the UI's `PasscodeGate` before storing the value in `sessionStorage`. |
+| `POST` | `/api/search-terms/suggest` | ✅ | Body: `SuggestSearchTermsRequest` (`product_name`, `product_context`). Synchronous Haiku call (default `claude-haiku-4-5-20251001`); returns `{"suggested_terms": string[]}`. Writes its own `logs/{timestamp}_{product}_searchterm.json`. Returns `502` with a sanitized message on parse or upstream failure. |
 | `POST` | `/api/runs` | ✅ | Body: `RunRequest`. Creates a `Run`, kicks off `execute_pipeline` in a background thread, returns `{"id": "<uuid>"}`. Returns `429` if `MAX_CONCURRENT_RUNS` is saturated. |
 | `GET`  | `/api/runs/{id}` | ✅ | Returns the live `Run` (status, stages, brief, error). Client polls this. |
 | `GET`  | `/api/runs/{id}/export` | ✅ | Returns `brief.raw_markdown` as a `text/markdown` attachment. 400 if not complete. |
@@ -126,7 +133,7 @@ CORS origins come from `ALLOWED_ORIGINS` (comma-separated, default `http://local
 ## Key Patterns & Conventions
 
 ### Config (two layers)
-- **`ServerConfig`** (server-level) — `ANTHROPIC_API_KEY`, `TAVILY_API_KEY`, `APP_PASSCODE`, `MODEL`, `TOKEN_BUDGET`, `MAX_CONCURRENT_RUNS`, `OUTPUT_DIR`, `LOG_DIR`. Loaded from `.env.local` (falls back to `.env`) at startup by `load_server_config()`. The three required values are the two API keys and `APP_PASSCODE` (min 8 chars). Everything else has a default.
+- **`ServerConfig`** (server-level) — `ANTHROPIC_API_KEY`, `TAVILY_API_KEY`, `APP_PASSCODE`, `MODEL`, `TOKEN_BUDGET`, `SUGGESTION_MODEL`, `MAX_CONCURRENT_RUNS`, `OUTPUT_DIR`, `LOG_DIR`. Loaded from `.env.local` (falls back to `.env`) at startup by `load_server_config()`. The three required values are the two API keys and `APP_PASSCODE` (min 8 chars). Everything else has a default. `SUGGESTION_MODEL` (default `claude-haiku-4-5-20251001`) is the small/cheap model used by `POST /api/search-terms/suggest`; it must have an entry in `MODEL_PRICING`.
 - **`ALLOWED_ORIGINS`** is read directly from the environment in `server.py` (not part of the Pydantic `ServerConfig`). Comma-separated list of CORS origins; defaults to `http://localhost:5173`. `*` is rejected at startup.
 - **`RunConfig`** (per-run) — built by `build_run_config(server, request)` for each `POST /api/runs`. Merges server-level values with the UI-supplied `RunRequest` fields: `product_name`, `product_context`, `search_terms`, `include_domains`, `exclude_domains`, `max_results_per_term`, `max_article_chars`, `dedup_title_similarity`, `dedup_snippet_similarity`.
 - **Per-run things now come from the UI form**, not env vars. Do not re-add `DOMAIN_DESCRIPTION` / `SEARCH_TERMS` to `ServerConfig`.
@@ -146,7 +153,8 @@ CORS origins come from `ALLOWED_ORIGINS` (comma-separated, default `http://local
 
 ### LLM Calls
 - **All LLM calls go through `AgentClient.call()`** — never instantiate `anthropic.Anthropic()` directly.
-- Each call requires a `step_name` string for token tracking (e.g., `"grouping"`, `"extraction_1"`).
+- `AgentClient.__init__(anthropic_api_key, model, tracker)` takes the api key + model identifier directly (not a `RunConfig`) so the same wrapper serves both pipeline calls (model from `RunConfig.model`) and the non-pipeline suggest call (model from `ServerConfig.suggestion_model`).
+- Each call requires a `step_name` string for token tracking (e.g., `"grouping"`, `"extraction_1"`, `"suggest_search_terms"`).
 - Budget enforcement: `chars ÷ 4` estimation before the call; actual `response.usage` recorded after.
 - `TokenBudgetExceeded` raised pre-call if the estimate would exceed the remaining budget — orchestrator marks the active stage failed and bails.
 - Rate limit: single retry with 30s backoff on `RateLimitError`.
@@ -155,13 +163,14 @@ CORS origins come from `ALLOWED_ORIGINS` (comma-separated, default `http://local
 ### Token Tracking & Cost
 - The Anthropic API does **not** return cost — only `input_tokens` / `output_tokens`. Cost is computed locally from the `MODEL_PRICING` dict in `tracking/token_tracker.py`.
 - When adding a new model, **add its pricing to `MODEL_PRICING`** — the tracker raises `KeyError` on unknown models.
-- Current pricing (Sonnet 4.6): `$3.00 / M` input, `$15.00 / M` output.
-- Each run produces `logs/{pipeline_run_id}.json` with a per-step breakdown.
+- Current pricing: Sonnet 4.6 `$3.00 / M` input, `$15.00 / M` output. Haiku 4.5 (`claude-haiku-4-5-20251001`) `$1.00 / M` input, `$5.00 / M` output.
 - `pipeline_run_id` (distinct from the API-level `Run.id` UUID) format: `{ISO timestamp}_{sanitized product_name}`, second-precision.
-- **Truncation telemetry.** Every `StepUsage` records `stop_reason` from the Anthropic response. `stop_reason == "max_tokens"` means the call hit its output cap and was truncated — `AgentClient.call()` prints a runtime warning naming the step + cap, and `TokenTracker.print_summary()` flags the row with `⚠ max_tokens`. Grep `logs/{run_id}.json` for `"stop_reason": "max_tokens"` to audit truncation after the fact.
+- **Log file naming (two suffixes).** Pipeline runs write `logs/{pipeline_run_id}_pipelinerun.json` and `logs/{pipeline_run_id}_pipelinerun.discards.json`. Each `POST /api/search-terms/suggest` writes `logs/{timestamp}_{sanitized_product_name}_searchterm.json`. The shared `{timestamp}_{product}` prefix means a searchterm log and the pipelinerun log from the same session sort adjacent in `ls`; the suffix tells you which is which. Suggest calls are intentionally **not** merged into the eventual Run log — each log file stands on its own.
+- The suggest call's token tracker is given a per-call budget (~50k) since it is not part of `TOKEN_BUDGET`, and `tracker.save()` is called in a `finally` so a failed/garbled call still leaves a cost record on disk.
+- **Truncation telemetry.** Every `StepUsage` records `stop_reason` from the Anthropic response. `stop_reason == "max_tokens"` means the call hit its output cap and was truncated — `AgentClient.call()` prints a runtime warning naming the step + cap, and `TokenTracker.print_summary()` flags the row with `⚠ max_tokens`. Grep `logs/*.json` for `"stop_reason": "max_tokens"` to audit truncation after the fact.
 
 ### Discard logging
-- `tracking/discard_log.py:write_discard_log()` writes `logs/{pipeline_run_id}.discards.json` after the grouping stage. Bucketed by stage: `dedup_url`, `dedup_title`, `dedup_snippet`, `group_no_content`, `group_llm_irrelevant`.
+- `tracking/discard_log.py:write_discard_log()` writes `logs/{pipeline_run_id}_pipelinerun.discards.json` after the grouping stage (the `_pipelinerun` suffix is supplied by the caller in `main.py` for naming consistency with the token usage log). Bucketed by stage: `dedup_url`, `dedup_title`, `dedup_snippet`, `group_no_content`, `group_llm_irrelevant`.
 - Inputs: `stats.discarded` from `services/dedup.py` + `grouping_result.discarded` from `agent/grouper.py`. Sibling to the token usage log; independent file so the two have separate consumers and sizes.
 
 ### JSON Parsing
@@ -172,9 +181,9 @@ CORS origins come from `ALLOWED_ORIGINS` (comma-separated, default `http://local
   - Token tracking: `StepUsage`, `RunLog`
   - Search & dedup: `SearchResult`, `DiscardedArticle`, `DedupStats`
   - Agent steps: `GroupedStory`, `GroupingResult`, `ThematicTag`, `ExtractionNote`
-  - API: `RunRequest`, `Stage`, `Run`
+  - API: `RunRequest`, `SuggestSearchTermsRequest`, `SuggestSearchTermsResponse`, `Stage`, `Run`
   - Brief: `Highlight`, `Story`, `ActionItem`, `Source`, `Section`, `Brief`
-- TypeScript counterparts in `client/src/types/models.ts` should be kept in sync when server models change.
+- TypeScript counterparts in `client/src/types/models.ts` should be kept in sync when server models change. The Suggest request/response shapes are inlined in `client/src/api/client.ts:suggestSearchTerms()` — no shared TS interface exists for them yet.
 
 ### Search
 - Tavily advanced search: `search_depth="advanced"`, `topic="news"`, `time_range="week"`, `include_raw_content=True`.
@@ -192,7 +201,8 @@ CORS origins come from `ALLOWED_ORIGINS` (comma-separated, default `http://local
 - Thresholds come from `RunConfig` (defaults: title `0.6`, snippet `0.8`).
 
 ### Agent Steps
-- **Prompts:** `prompts/system.py` builds the shared system prompt from `product_name` (short label, used in prompt grammar) and `product_context` (multi-line block describing mission, target customer, current bets, PM responsibility). Every agent step inherits this system prompt. Each step has its own user-message builder in `prompts/`.
+- **Prompts:** `prompts/system.py` builds the shared system prompt from `product_name` (short label, used in prompt grammar) and `product_context` (multi-line block describing mission, target customer, current bets, PM responsibility). Every agent step inherits this system prompt — including the non-pipeline `prompts/search_terms.py`. Each step has its own user-message builder in `prompts/`.
+- **Search-term suggestion (`prompts/search_terms.py`, endpoint in `server.py`):** Non-pipeline, synchronous Haiku call powering the "Suggest search terms" button on the New Run screen. Asks the LLM for 4–5 short (≤60 char) lowercase web-search queries; response shape `{"suggested_terms": [...]}` parsed via `parse_llm_json()`. Server-side cleanup trims, lowercases, dedupes, drops empties, caps at 10. Failure mode is a sanitized 502 — the UI keeps the form usable for manual entry. Runs before any `RunConfig` exists, which is why `AgentClient.__init__` takes the api key + model directly rather than a `RunConfig`.
 - **Grouping (`agent/grouper.py`):** Filters out results with no `raw_content` before prompting (those become `group_no_content` discards). Groups by story arc, selects best source per group (cap ~15). Results the LLM judges irrelevant become `group_llm_irrelevant` discards. Output validated as `GroupingResult` via `parse_llm_json()`; `grouping_result.discarded` is merged with dedup discards by the orchestrator and persisted via `write_discard_log`.
 - **Extraction (`agent/extractor.py`):** Processes articles **one at a time** (not batched) to keep context small. Each call gets a unique `step_name` (`extraction_1`, `extraction_2`, ...) and uses `max_tokens=10000`. Accepts a `progress_callback(completed, total)` so the orchestrator can update stage detail live. Gracefully skips on parse failure or `TokenBudgetExceeded` and returns partial results. After parsing each note, `filter_tags` are intersected with `tagging/vocabulary.py:FILTER_TAG_VOCABULARY` — unknown tags are dropped.
 - **Synthesis (`agent/synthesizer.py`):** Emits a structured `Brief` **JSON** object (validated against the Pydantic `Brief` model). Uses `max_tokens=10000`. The server then renders markdown server-side via `templates/pm_brief.py:render_brief_markdown()` from the structured brief and writes it to `output/{pipeline_run_id}.md`; the same string is also stored on `Run.brief.raw_markdown`.

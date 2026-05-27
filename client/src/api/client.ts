@@ -64,6 +64,20 @@ export async function checkPasscode(candidate: string): Promise<boolean> {
   return true;
 }
 
+export async function suggestSearchTerms(
+  productName: string,
+  productContext: string
+): Promise<string[]> {
+  const res = await fetch(`${API_BASE}/api/search-terms/suggest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ product_name: productName, product_context: productContext }),
+  });
+  await handleResponse(res, 'Failed to suggest search terms');
+  const data: { suggested_terms: string[] } = await res.json();
+  return data.suggested_terms;
+}
+
 export async function createRun(request: RunRequest): Promise<{ id: string }> {
   const res = await fetch(`${API_BASE}/api/runs`, {
     method: 'POST',

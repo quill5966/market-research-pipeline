@@ -18,6 +18,8 @@ Search → Deduplicate → Group by Story → Extract Notes → Synthesize Brief
 
 The pipeline runs as a background task on the server. The client polls for real-time stage progress and renders the finished brief.
 
+The New Run screen also has a **Suggest search terms** button that uses a smaller, cheaper Claude model (Haiku 4.5 by default) to generate 4–5 starter queries from your product name + product context. You can edit, add to, or remove any of the suggestions before kicking off the pipeline.
+
 ## Quick Start
 
 ### Prerequisites
@@ -72,8 +74,9 @@ Server-level configuration lives in `server/.env.local`. Per-run parameters — 
 | `ANTHROPIC_API_KEY` | ✅ | — | Anthropic API key |
 | `TAVILY_API_KEY` | ✅ | — | Tavily API key |
 | `APP_PASSCODE` | ✅ | — | Shared passcode that gates the UI and API (≥8 chars; use ≥16 random chars in production) |
-| `MODEL` | | `claude-sonnet-4-6` | Anthropic model ID |
-| `TOKEN_BUDGET` | | `200000` | Max input tokens per run |
+| `MODEL` | | `claude-sonnet-4-6` | Anthropic model ID used by the pipeline |
+| `TOKEN_BUDGET` | | `200000` | Max input tokens per pipeline run |
+| `SUGGESTION_MODEL` | | `claude-haiku-4-5-20251001` | Smaller/cheaper model used by the "Suggest search terms" button. Must have pricing in `MODEL_PRICING` in `tracking/token_tracker.py` |
 | `MAX_CONCURRENT_RUNS` | | `3` | Max simultaneous pipeline runs across the server (extra POSTs get a 429) |
 | `ALLOWED_ORIGINS` | | `http://localhost:5173` | Comma-separated CORS origins. `*` is rejected at startup |
 | `OUTPUT_DIR` | | `output` | Directory for generated briefs |
@@ -120,7 +123,7 @@ market-research-pipeline/
 │   │   ├── grouper.py          # LLM: group results by story
 │   │   ├── extractor.py        # LLM: per-article structured extraction
 │   │   └── synthesizer.py      # LLM: generate PM brief
-│   ├── prompts/                # Prompt builders per pipeline step
+│   ├── prompts/                # Prompt builders (per pipeline step + search-term suggestion)
 │   ├── services/               # Search + dedup
 │   ├── tagging/                # Closed vocabulary for filter_tags
 │   ├── tracking/               # Token usage + cost + discard logging
@@ -154,6 +157,7 @@ All endpoints except `/api/health` require `Authorization: Bearer <APP_PASSCODE>
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `POST` | `/api/auth/check` | ✅ | Validate the passcode without side effects (used by the UI gate) |
+| `POST` | `/api/search-terms/suggest` | ✅ | Generate 4–5 starter search terms from `product_name` + `product_context` using `SUGGESTION_MODEL`. Returns `{"suggested_terms": [...]}` |
 | `POST` | `/api/runs` | ✅ | Start a new pipeline run. Returns `429` if `MAX_CONCURRENT_RUNS` is saturated |
 | `GET` | `/api/runs/:id` | ✅ | Get run status, stages, and brief |
 | `GET` | `/api/runs/:id/export` | ✅ | Download brief as markdown |
@@ -161,11 +165,20 @@ All endpoints except `/api/health` require `Authorization: Bearer <APP_PASSCODE>
 
 ## Cost & Token Tracking
 
-Every run produces a JSON log in `server/logs/` with a per-step breakdown of token usage and estimated cost. Each step also records the Anthropic `stop_reason`, so output truncation (`max_tokens` hits) is visible after the fact — grep for `"stop_reason": "max_tokens"`. A sibling `{run_id}.discards.json` captures articles dropped during dedup and grouping. The pipeline enforces a configurable `TOKEN_BUDGET` — if a step would exceed the budget, it raises an exception and saves partial results.
+Every pipeline run produces a JSON log in `server/logs/` with a per-step breakdown of token usage and estimated cost. Each step also records the Anthropic `stop_reason`, so output truncation (`max_tokens` hits) is visible after the fact — grep for `"stop_reason": "max_tokens"`. The pipeline enforces a configurable `TOKEN_BUDGET` — if a step would exceed the budget, it raises an exception and saves partial results.
 
-Current pricing (Claude Sonnet 4.6): **$3.00 / M input tokens**, **$15.00 / M output tokens**.
+Log file naming:
+- `logs/{timestamp}_{product}_pipelinerun.json` — token usage for a pipeline run
+- `logs/{timestamp}_{product}_pipelinerun.discards.json` — sibling log of articles dropped during dedup and grouping
+- `logs/{timestamp}_{product}_searchterm.json` — one file per "Suggest search terms" click; written even if the call fails so cost is always recorded
 
-A typical run with 10 search terms costs roughly **$0.25–$0.50** depending on article count and content length.
+The shared `{timestamp}_{product}` prefix means files from the same session sort adjacent in `ls`.
+
+Current pricing:
+- **Claude Sonnet 4.6** (pipeline default): $3.00 / M input tokens, $15.00 / M output tokens
+- **Claude Haiku 4.5** (suggestion default): $1.00 / M input tokens, $5.00 / M output tokens
+
+A typical pipeline run with 10 search terms costs roughly **$0.25–$0.50** depending on article count and content length. A single "Suggest search terms" call costs a fraction of a cent.
 
 ## Deployment
 

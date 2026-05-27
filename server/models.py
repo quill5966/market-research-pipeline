@@ -194,6 +194,39 @@ class RunRequest(BaseModel):
         return v
 
 
+class SuggestSearchTermsRequest(BaseModel):
+    """Request body for POST /api/search-terms/suggest."""
+
+    product_name: str
+    product_context: str
+
+    @field_validator("product_name")
+    @classmethod
+    def product_name_length(cls, v: str) -> str:
+        v = v.strip()
+        if len(v) < 2:
+            raise ValueError("product_name must be at least 2 characters")
+        if len(v) > 80:
+            raise ValueError("product_name must be at most 80 characters")
+        return v
+
+    @field_validator("product_context")
+    @classmethod
+    def product_context_length(cls, v: str) -> str:
+        v = v.strip()
+        if len(v) < 10:
+            raise ValueError("product_context must be at least 10 characters")
+        if len(v) > 2000:
+            raise ValueError("product_context must be at most 2000 characters")
+        return v
+
+
+class SuggestSearchTermsResponse(BaseModel):
+    """Response body for POST /api/search-terms/suggest."""
+
+    suggested_terms: list[str]
+
+
 class Stage(BaseModel):
     """Pipeline stage progress (part of a Run)."""
 

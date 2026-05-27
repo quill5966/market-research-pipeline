@@ -9,7 +9,6 @@ import time
 
 import anthropic
 
-from config import RunConfig
 from tracking.token_tracker import TokenTracker
 
 
@@ -30,15 +29,16 @@ class TokenBudgetExceeded(Exception):
 class AgentClient:
     """Wrapper around Anthropic SDK with automatic token tracking."""
 
-    def __init__(self, config: RunConfig, tracker: TokenTracker):
+    def __init__(self, anthropic_api_key: str, model: str, tracker: TokenTracker):
         """Initialize the client.
 
         Args:
-            config: Pipeline configuration with API key and model.
+            anthropic_api_key: Anthropic API key.
+            model: Model identifier (must match a key in token_tracker.MODEL_PRICING).
             tracker: TokenTracker instance for recording usage.
         """
-        self.client = anthropic.Anthropic(api_key=config.anthropic_api_key)
-        self.model = config.model
+        self.client = anthropic.Anthropic(api_key=anthropic_api_key)
+        self.model = model
         self.tracker = tracker
 
     def call(

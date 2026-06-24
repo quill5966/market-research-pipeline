@@ -96,6 +96,10 @@ def extract_articles(
         try:
             parsed = parse_llm_json(raw_response)
             note = ExtractionNote(**parsed)
+            # Authoritative URL: use the source we actually fed the model, not
+            # whatever it echoed back. Keeps the orchestrator's extraction cache
+            # (keyed by source_url) aligned with the group's selected_url.
+            note.source_url = sr.url
             note.filter_tags = [t for t in note.filter_tags if t in FILTER_TAG_VOCABULARY]
             notes.append(note)
             print(f"   📝 {i+1}/{total}: {note.headline[:60]}")

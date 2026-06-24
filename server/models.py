@@ -14,7 +14,7 @@ Model groups:
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 
 # --- Token tracking models ---
@@ -227,10 +227,60 @@ class SuggestSearchTermsResponse(BaseModel):
     suggested_terms: list[str]
 
 
+class ReviewVerdict(BaseModel):
+    """Agent reviewer's assessment of a synthesized brief.
+
+    The reviewer judges the brief against product_context and decides whether
+    a corrective pass is warranted. Invariant (enforced by the validators
+    below, never by raising on a merely-inconsistent verdict):
+      - verdict == "sufficient"   → failure_mode is None
+      - verdict == "insufficient" → failure_mode is "coverage_gap" or "synthesis_gap"
+    """
+
+    verdict: Literal["sufficient", "insufficient"]
+    failure_mode: Literal["coverage_gap", "synthesis_gap"] | None = None
+    rationale: str
+    gaps: list[str] = []
+    suggested_search_terms: list[str] = []  # populated for coverage_gap
+    resynthesis_guidance: str | None = None  # populated for synthesis_gap
+
+    @field_validator("failure_mode", mode="before")
+    @classmethod
+    def _empty_to_none(cls, v):
+        # Coerce the LLM's "none"/""/null spellings to a real None.
+        return None if v in ("none", "null", "", None) else v
+
+    @field_validator("gaps", "suggested_search_terms", mode="before")
+    @classmethod
+    def _null_to_empty_list(cls, v):
+        # The LLM emits explicit `null` for these when not applicable (e.g. on a
+        # sufficient or synthesis_gap verdict). A present-but-null value bypasses
+        # the field default, so coerce it back to an empty list.
+        return [] if v is None else v
+
+    @model_validator(mode="after")
+    def _reconcile(self):
+        if self.verdict == "sufficient":
+            # No failure mode allowed; clear any contradictory corrective fields.
+            self.failure_mode = None
+            self.suggested_search_terms = []
+            self.resynthesis_guidance = None
+        else:  # insufficient → must carry an actionable failure_mode
+            if self.failure_mode is None:
+                if self.suggested_search_terms:
+                    self.failure_mode = "coverage_gap"
+                elif self.resynthesis_guidance:
+                    self.failure_mode = "synthesis_gap"
+                else:
+                    # Flagged a problem but gave nothing to act on — ship as-is.
+                    self.verdict = "sufficient"
+        return self
+
+
 class Stage(BaseModel):
     """Pipeline stage progress (part of a Run)."""
 
-    name: Literal["search", "dedup", "group", "extract", "synthesize"]
+    name: Literal["search", "dedup", "group", "extract", "synthesize", "review"]
     status: Literal["pending", "active", "done", "failed"] = "pending"
     detail: str = "Waiting"
     elapsed_ms: int | None = None
@@ -244,6 +294,7 @@ class Run(BaseModel):
     created_at: datetime
     request: RunRequest  # Echo of original request
     stages: list[Stage]
+    review_iterations: int = 0  # Number of corrective passes the agent reviewer triggered
     brief: "Brief | None" = None  # Populated when status == "complete"
     error: str | None = None  # Populated when status == "failed"
 

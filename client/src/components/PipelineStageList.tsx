@@ -10,6 +10,7 @@ const STAGE_LABELS: Record<string, string> = {
   group: 'Group by story',
   extract: 'Extract notes',
   synthesize: 'Synthesize brief',
+  review: 'Agent review brief',
 };
 
 function formatElapsed(ms: number | null): string {

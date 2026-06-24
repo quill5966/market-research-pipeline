@@ -19,10 +19,15 @@ def synthesize_brief(
     product_name: str,
     product_context: str,
     run_date: str,
+    resynthesis_guidance: str | None = None,
 ) -> Brief | None:
     """Synthesize a structured PM Brief from extraction notes.
 
     Returns None on empty input or parse failure (orchestrator handles fallback).
+
+    Args:
+        resynthesis_guidance: Optional reviewer instructions for a synthesis-gap
+            re-run; forwarded to the prompt builder.
 
     Raises:
         TokenBudgetExceeded: If the call would exceed the token budget.
@@ -40,6 +45,7 @@ def synthesize_brief(
         brief_schema=BRIEF_JSON_SCHEMA,
         section_guidance=SECTION_GUIDANCE,
         run_date=run_date,
+        resynthesis_guidance=resynthesis_guidance,
     )
 
     raw_response = client.call(

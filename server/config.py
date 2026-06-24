@@ -41,6 +41,10 @@ class ServerConfig(BaseModel):
     # Concurrency limit: max simultaneously-running pipeline runs across the server
     max_concurrent_runs: int = 3
 
+    # Max corrective passes the agent reviewer may trigger per run (0 disables
+    # the review loop). Each corrective pass gets a freshly replenished budget.
+    max_review_iterations: int = 1
+
     @field_validator("app_passcode")
     @classmethod
     def passcode_must_be_strong_enough(cls, v: str) -> str:
@@ -53,6 +57,13 @@ class ServerConfig(BaseModel):
     def max_concurrent_runs_positive(cls, v: int) -> int:
         if v <= 0:
             raise ValueError(f"MAX_CONCURRENT_RUNS must be positive, got {v}")
+        return v
+
+    @field_validator("max_review_iterations")
+    @classmethod
+    def max_review_iterations_non_negative(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError(f"MAX_REVIEW_ITERATIONS must be >= 0, got {v}")
         return v
 
     @field_validator("token_budget")
@@ -76,6 +87,7 @@ class RunConfig(BaseModel):
     token_budget: int
     output_dir: str
     log_dir: str
+    max_review_iterations: int
 
     # From RunRequest (user-supplied via UI form)
     product_name: str
@@ -162,6 +174,7 @@ def load_server_config(env_path: str | None = None) -> ServerConfig:
         output_dir=os.getenv("OUTPUT_DIR", "output"),
         log_dir=os.getenv("LOG_DIR", "logs"),
         max_concurrent_runs=int(os.getenv("MAX_CONCURRENT_RUNS", "3")),
+        max_review_iterations=int(os.getenv("MAX_REVIEW_ITERATIONS", "1")),
     )
 
     # Ensure output directories exist
@@ -189,6 +202,7 @@ def build_run_config(server: ServerConfig, request) -> RunConfig:
         token_budget=server.token_budget,
         output_dir=server.output_dir,
         log_dir=server.log_dir,
+        max_review_iterations=server.max_review_iterations,
         # From request
         product_name=request.product_name,
         product_context=request.product_context,

@@ -132,6 +132,21 @@ class TokenTracker:
         """Input tokens remaining before hitting the budget."""
         return max(0, self.token_budget - self.total_input_tokens)
 
+    def replenish_budget(self, amount: int) -> None:
+        """Top up the token budget for a corrective pass.
+
+        The budget gate is cumulative (would_exceed_budget compares total
+        input tokens against token_budget), so a corrective pipeline pass is
+        granted a fresh allowance by raising the cap rather than resetting
+        usage. All recorded steps — and therefore total tokens/cost in the
+        saved log — continue to accumulate across passes.
+
+        Args:
+            amount: Tokens to add to the budget (typically the original budget).
+        """
+        self.token_budget += amount
+        print(f"♻️  Token budget replenished by {amount:,} → {self.token_budget:,} total")
+
     def would_exceed_budget(self, estimated_input_tokens: int) -> bool:
         """Check if the next call would exceed the token budget.
 

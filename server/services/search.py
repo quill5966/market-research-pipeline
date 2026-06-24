@@ -14,8 +14,8 @@ from config import RunConfig
 from models import SearchResult
 
 
-def search(config: RunConfig) -> list[SearchResult]:
-    """Run Tavily advanced search for all configured terms.
+def search(config: RunConfig, terms: list[str] | None = None) -> list[SearchResult]:
+    """Run Tavily advanced search for the given terms.
 
     Makes one API call per search term with topic="news",
     search_depth="advanced", and include_raw_content=True.
@@ -23,16 +23,19 @@ def search(config: RunConfig) -> list[SearchResult]:
 
     Args:
         config: Pipeline configuration with Tavily API key and search terms.
+        terms: Explicit term list to search. Defaults to config.search_terms.
+               The agent reviewer passes corrective terms here on a re-search.
 
     Returns:
         Combined list of SearchResult objects across all terms.
     """
     client = TavilyClient(api_key=config.tavily_api_key)
+    search_terms = terms if terms is not None else config.search_terms
     all_results: list[SearchResult] = []
     original_lengths: list[int] = []  # raw_content lengths before truncation
     truncated_count = 0
 
-    for term in config.search_terms:
+    for term in search_terms:
         response = client.search(
             query=term,
             search_depth="advanced",

@@ -78,7 +78,10 @@ export function PipelineScreen() {
             <div className="running-header">
               <h1 className="running-title">{run.request.product_name}</h1>
               <div className="running-meta">
-                {run.request.search_terms.length} search terms · Claude Sonnet 4.6
+                Claude Sonnet 4.6
+                {run.review_iterations > 0 && (
+                  <> · agent corrective pass {run.review_iterations}</>
+                )}
               </div>
             </div>
 
@@ -91,13 +94,6 @@ export function PipelineScreen() {
               >
                 <i className="ti ti-alert-circle" />
                 Pipeline failed: {run.error}
-              </div>
-            )}
-
-            {run.status !== 'failed' && (
-              <div className="info-notice">
-                <i className="ti ti-info-circle" />
-                You can leave this page — the pipeline will continue running.
               </div>
             )}
           </>

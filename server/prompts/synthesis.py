@@ -14,6 +14,7 @@ def build_synthesis_prompt(
     brief_schema: str,
     section_guidance: str,
     run_date: str,
+    resynthesis_guidance: str | None = None,
 ) -> str:
     """Build the user message for the synthesis step.
 
@@ -23,6 +24,9 @@ def build_synthesis_prompt(
         brief_schema: The BRIEF_JSON_SCHEMA string describing the target JSON shape.
         section_guidance: The SECTION_GUIDANCE string describing section types.
         run_date: Current date string (YYYY-MM-DD) for the brief header.
+        resynthesis_guidance: Optional reviewer instructions for a synthesis-gap
+            re-run. When present, the brief is being regenerated from the same
+            notes to address a specific weakness the reviewer identified.
 
     Returns:
         A formatted user message string.
@@ -37,7 +41,16 @@ def build_synthesis_prompt(
 
     vocab_list = ", ".join(FILTER_TAG_VOCABULARY)
 
-    return f"""You have {len(notes)} structured extraction notes from recent news articles relevant to {product_name}. Synthesize them into a complete PM brief, emitted as a JSON object matching the schema below. Use the product context in the system prompt to keep the brief grounded in this product's specific situation.
+    guidance_block = ""
+    if resynthesis_guidance:
+        guidance_block = f"""
+
+REVISION GUIDANCE (this is a re-synthesis — a reviewer found the previous draft insufficient):
+{resynthesis_guidance}
+Address this guidance directly while still following all instructions below.
+"""
+
+    return f"""You have {len(notes)} structured extraction notes from recent news articles relevant to {product_name}. Synthesize them into a complete PM brief, emitted as a JSON object matching the schema below. Use the product context in the system prompt to keep the brief grounded in this product's specific situation.{guidance_block}
 
 TARGET SCHEMA:
 {brief_schema}

@@ -18,7 +18,7 @@ export interface RunRequest {
 }
 
 export interface Stage {
-  name: 'search' | 'dedup' | 'group' | 'extract' | 'synthesize';
+  name: 'search' | 'dedup' | 'group' | 'extract' | 'synthesize' | 'review';
   status: 'pending' | 'active' | 'done' | 'failed';
   detail: string;
   elapsed_ms: number | null;
@@ -30,6 +30,7 @@ export interface Run {
   created_at: string;
   request: RunRequest;
   stages: Stage[];
+  review_iterations: number;
   brief: Brief | null;
   error: string | null;
 }

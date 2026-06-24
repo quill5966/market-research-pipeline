@@ -69,7 +69,7 @@ runs: dict[str, Run] = {}
 _run_slots = threading.Semaphore(server_config.max_concurrent_runs)
 
 # Default pipeline stages
-STAGE_NAMES = ["search", "dedup", "group", "extract", "synthesize"]
+STAGE_NAMES = ["search", "dedup", "group", "extract", "synthesize", "review"]
 
 
 def _make_stages() -> list[Stage]:

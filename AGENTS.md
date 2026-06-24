@@ -13,7 +13,7 @@ A full-stack web app that searches the web for news related to a user-specified 
 
 - **Server** — FastAPI app that exposes a small `/api/runs` surface and runs the pipeline as a background thread.
 - **Client** — Vite + React (TypeScript) app that submits run requests, polls for stage progress, and renders the finished brief.
-- **Pipeline** — Search → Dedup → Group → Extract → Synthesize, with token tracking on every LLM call.
+- **Pipeline** — Search → Dedup → Group → Extract → Synthesize → Agent Review, with token tracking on every LLM call. The reviewer can trigger a bounded corrective pass (coverage-gap re-search or synthesis-gap rewrite).
 
 ## Tech Stack
 
@@ -53,16 +53,18 @@ market-research-pipeline/
 │   │   ├── json_utils.py      # parse_llm_json — strips code fences, trailing commas
 │   │   ├── grouper.py         # LLM: group results by story
 │   │   ├── extractor.py       # LLM: per-article structured extraction
-│   │   └── synthesizer.py     # LLM: generate PM brief markdown
-│   ├── prompts/               # system / grouping / extraction / synthesis / search_terms builders
+│   │   ├── synthesizer.py     # LLM: generate PM brief markdown
+│   │   └── reviewer.py        # LLM: judge brief, propose corrective re-search/rewrite
+│   ├── prompts/               # system / grouping / extraction / synthesis / search_terms / review builders
 │   ├── services/              # search.py (Tavily) + dedup.py
 │   ├── tagging/               # vocabulary.py — closed filter_tag vocabulary
-│   ├── tracking/              # token_tracker.py (usage+cost) + discard_log.py
+│   ├── tracking/              # token_tracker.py (usage+cost) + discard_log.py + review_log.py
 │   ├── templates/             # pm_brief.py — brief template text
 │   ├── scripts/               # Diagnostic scripts (inspect_tavily.py)
 │   ├── output/                # Generated briefs (gitignored)
 │   └── logs/                  # Per-run JSON: {pipeline_run_id}_pipelinerun.json (usage)
 │                              #             + {pipeline_run_id}_pipelinerun.discards.json
+│                              #             + {pipeline_run_id}_pipelinerun.review.json (agent review trail)
 │                              #             + {timestamp}_{product}_searchterm.json (per Suggest call)
 └── client/                    # Vite + React (TypeScript) frontend
     ├── index.html
@@ -98,9 +100,13 @@ Background thread: execute_pipeline(run, config)
   3. Agent: Group → LLM groups snippets by story arc            (tokens)
   4. Agent: Extract → LLM extracts notes per article, 1-at-a-time (tokens)
   5. Agent: Synth → LLM generates PM brief markdown             (tokens)
-  6. Output       → Write brief md to output/{pipeline_run_id}.md  (deterministic)
-  7. Logs         → Write logs/{pipeline_run_id}_pipelinerun.json (token usage) and
-                    logs/{pipeline_run_id}_pipelinerun.discards.json (dropped articles) (deterministic)
+  6. Agent: Review → LLM judges brief; may loop back to a corrective
+                    re-search (steps 1-5 on the union) or re-synthesis,
+                    capped at MAX_REVIEW_ITERATIONS, budget replenished  (tokens)
+  7. Output       → Write brief md to output/{pipeline_run_id}.md  (deterministic)
+  8. Logs         → Write logs/{pipeline_run_id}_pipelinerun.json (token usage),
+                    logs/{pipeline_run_id}_pipelinerun.discards.json (dropped articles),
+                    logs/{pipeline_run_id}_pipelinerun.review.json (review trail) (deterministic)
 
 Separately, POST /api/search-terms/suggest is a small synchronous Haiku call
 that runs *before* any pipeline. It writes its own
@@ -133,9 +139,9 @@ CORS origins come from `ALLOWED_ORIGINS` (comma-separated, default `http://local
 ## Key Patterns & Conventions
 
 ### Config (two layers)
-- **`ServerConfig`** (server-level) — `ANTHROPIC_API_KEY`, `TAVILY_API_KEY`, `APP_PASSCODE`, `MODEL`, `TOKEN_BUDGET`, `SUGGESTION_MODEL`, `MAX_CONCURRENT_RUNS`, `OUTPUT_DIR`, `LOG_DIR`. Loaded from `.env.local` (falls back to `.env`) at startup by `load_server_config()`. The three required values are the two API keys and `APP_PASSCODE` (min 8 chars). Everything else has a default. `SUGGESTION_MODEL` (default `claude-haiku-4-5-20251001`) is the small/cheap model used by `POST /api/search-terms/suggest`; it must have an entry in `MODEL_PRICING`.
+- **`ServerConfig`** (server-level) — `ANTHROPIC_API_KEY`, `TAVILY_API_KEY`, `APP_PASSCODE`, `MODEL`, `TOKEN_BUDGET`, `SUGGESTION_MODEL`, `MAX_CONCURRENT_RUNS`, `MAX_REVIEW_ITERATIONS`, `OUTPUT_DIR`, `LOG_DIR`. Loaded from `.env.local` (falls back to `.env`) at startup by `load_server_config()`. The three required values are the two API keys and `APP_PASSCODE` (min 8 chars). Everything else has a default. `SUGGESTION_MODEL` (default `claude-haiku-4-5-20251001`) is the small/cheap model used by `POST /api/search-terms/suggest`; it must have an entry in `MODEL_PRICING`. `MAX_REVIEW_ITERATIONS` (default `1`, must be ≥ 0; `0` disables the agent review loop) caps corrective passes — it flows into `RunConfig` so the orchestrator can read it per run. The reviewer reuses the pipeline `MODEL` (no separate review model).
 - **`ALLOWED_ORIGINS`** is read directly from the environment in `server.py` (not part of the Pydantic `ServerConfig`). Comma-separated list of CORS origins; defaults to `http://localhost:5173`. `*` is rejected at startup.
-- **`RunConfig`** (per-run) — built by `build_run_config(server, request)` for each `POST /api/runs`. Merges server-level values with the UI-supplied `RunRequest` fields: `product_name`, `product_context`, `search_terms`, `include_domains`, `exclude_domains`, `max_results_per_term`, `max_article_chars`, `dedup_title_similarity`, `dedup_snippet_similarity`.
+- **`RunConfig`** (per-run) — built by `build_run_config(server, request)` for each `POST /api/runs`. Merges server-level values (incl. `max_review_iterations`) with the UI-supplied `RunRequest` fields: `product_name`, `product_context`, `search_terms`, `include_domains`, `exclude_domains`, `max_results_per_term`, `max_article_chars`, `dedup_title_similarity`, `dedup_snippet_similarity`.
 - **Per-run things now come from the UI form**, not env vars. Do not re-add `DOMAIN_DESCRIPTION` / `SEARCH_TERMS` to `ServerConfig`.
 - `output/` and `logs/` directories are auto-created on `load_server_config()`.
 - Pydantic validators enforce types and ranges (token budget > 0, similarities in `[0, 1]`, `APP_PASSCODE` ≥ 8 chars, `include_domains`/`exclude_domains` ≤ 50 entries each, etc.).
@@ -181,7 +187,8 @@ CORS origins come from `ALLOWED_ORIGINS` (comma-separated, default `http://local
   - Token tracking: `StepUsage`, `RunLog`
   - Search & dedup: `SearchResult`, `DiscardedArticle`, `DedupStats`
   - Agent steps: `GroupedStory`, `GroupingResult`, `ThematicTag`, `ExtractionNote`
-  - API: `RunRequest`, `SuggestSearchTermsRequest`, `SuggestSearchTermsResponse`, `Stage`, `Run`
+  - API: `RunRequest`, `SuggestSearchTermsRequest`, `SuggestSearchTermsResponse`, `Stage`, `Run` (has `review_iterations`)
+  - Agent review: `ReviewVerdict`
   - Brief: `Highlight`, `Story`, `ActionItem`, `Source`, `Section`, `Brief`
 - TypeScript counterparts in `client/src/types/models.ts` should be kept in sync when server models change. The Suggest request/response shapes are inlined in `client/src/api/client.ts:suggestSearchTerms()` — no shared TS interface exists for them yet.
 
@@ -207,7 +214,10 @@ CORS origins come from `ALLOWED_ORIGINS` (comma-separated, default `http://local
 - **Extraction (`agent/extractor.py`):** Processes articles **one at a time** (not batched) to keep context small. Each call gets a unique `step_name` (`extraction_1`, `extraction_2`, ...) and uses `max_tokens=10000`. Accepts a `progress_callback(completed, total)` so the orchestrator can update stage detail live. Gracefully skips on parse failure or `TokenBudgetExceeded` and returns partial results. After parsing each note, `filter_tags` are intersected with `tagging/vocabulary.py:FILTER_TAG_VOCABULARY` — unknown tags are dropped.
 - **Synthesis (`agent/synthesizer.py`):** Emits a structured `Brief` **JSON** object (validated against the Pydantic `Brief` model). Uses `max_tokens=10000`. The server then renders markdown server-side via `templates/pm_brief.py:render_brief_markdown()` from the structured brief and writes it to `output/{pipeline_run_id}.md`; the same string is also stored on `Run.brief.raw_markdown`.
 - **Synthesis prompt — PM action items bias.** The synthesis prompt biases action items toward four categories (treat as suggestions, not strict tags): **customer/user research questions**, **roadmap considerations**, **competitive responses**, **positioning & messaging**. Each item must be grounded in `product_context` and name a specific product area, competitor, segment, or customer cohort — no generic "monitor the landscape" advice. UI surfaces these under the heading "Ideas for PM Next Steps".
-- **Intentionally absent sections.** "Watchlist", "Outlook", and "One thing to watch" were removed from the schema and prompts. The brief should end with its last thematic cluster. Do **not** re-introduce them without an explicit product decision; the synthesis prompt and `templates/pm_brief.py` actively discourage them.
+- **Intentionally absent sections.** "Watchlist", "Outlook", and "One thing to watch" were removed from the schema and prompts. The brief should end with its last thematic cluster. Do **not** re-introduce them without an explicit product decision; the synthesis prompt and `templates/pm_brief.py` actively discourage them. The review prompt also forbids the reviewer from suggesting them in `resynthesis_guidance`.
+- **Agent review (`agent/reviewer.py`, `prompts/review.py`):** After the first synthesis, a single LLM call (pipeline model, `step_name=review_{n}`, `max_tokens=4000`) judges the brief against `product_context`. It is fed the brief markdown + structured highlights/action_items, a digest of the extraction notes, and the discard log (to counter self-evaluation bias). Output validated as `ReviewVerdict` via `parse_llm_json()`. The discriminating rule: a weakness whose material is **absent from the notes** is a `coverage_gap` (re-search); material **present in the notes but missing/buried** is a `synthesis_gap` (rewrite). On parse/validation failure it returns `None` → orchestrator ships the current brief (never blocks on a broken judge). For `coverage_gap`, the reviewer's `suggested_search_terms` are difference-filtered (`filter_new_terms`) against all terms searched so far — token-set Jaccard ≥ 0.6 (reusing `dedup._tokenize`/`_word_overlap`) drops exact and near-duplicate terms so the re-search explores new query space.
+- **`ReviewVerdict` invariant.** `verdict` is `sufficient` | `insufficient`. Two validators **reconcile rather than raise**: a before-validator coerces `"none"`/`""`/`null` → `None`; a model-validator guarantees `sufficient`→`failure_mode is None` (and clears stray corrective fields), and `insufficient`→`failure_mode` is `coverage_gap` or `synthesis_gap` (inferred from `suggested_search_terms`/`resynthesis_guidance` when the LLM left it blank; downgraded to `sufficient` if there's nothing actionable). So a merely-inconsistent verdict never throws.
+- **Corrective loop (`main.py`).** Capped at `MAX_REVIEW_ITERATIONS` (default 1) corrective passes. Before each review iteration the token budget is **replenished** by the original budget (`tracker.replenish_budget`) so the loop never terminates on overrun; usage/cost still accumulate into the one `_pipelinerun.json` (steps `grouping`, `extraction_*`, `synthesis`, `review_*` from every pass). `coverage_gap` → re-search new terms → merge-dedup new survivors into the kept set (cross-iteration URL + snippet dedup) → re-group the **union** → extract only uncached articles (cache keyed by `ExtractionNote.source_url`, which the extractor sets authoritatively to the fed URL) → re-synthesize on the union. `synthesis_gap` → re-synthesize the same notes with `resynthesis_guidance`, no new search. Other termination conditions: verdict `sufficient`, zero usable new terms, or zero new articles from the re-search. Each iteration's verdict + action + termination reason is persisted via `tracking/review_log.py:write_review_log` to `logs/{pipeline_run_id}_pipelinerun.review.json`.
 
 ### Tags: two distinct vocabularies
 - **`thematic_tags`** (`models.ThematicTag`, on `ExtractionNote`): free-form section labels the LLM assigns during extraction. Synthesis uses them to cluster notes into brief `Section`s.
@@ -216,7 +226,7 @@ CORS origins come from `ALLOWED_ORIGINS` (comma-separated, default `http://local
 ### Pipeline ↔ API integration
 - `runs: dict[str, Run]` in `server.py` is an in-memory store — it does **not** persist across restarts. If you need durability, this is the seam to add it.
 - `execute_pipeline` runs in a daemon `Thread`. It mutates `Run.status`, `Run.stages[*].status/detail/elapsed_ms`, `Run.brief`, and `Run.error` directly — those mutations are what the client sees via polling.
-- Stage names are fixed: `["search", "dedup", "group", "extract", "synthesize"]` (see `STAGE_NAMES`). The `Stage.name` Literal in `models.py` must match.
+- Stage names are fixed: `["search", "dedup", "group", "extract", "synthesize", "review"]` (see `STAGE_NAMES`). The `Stage.name` Literal in `models.py` must match. On a corrective pass the search/dedup/group/extract/synthesize stages flip `done`→`active` again with a `· round N` suffix in their detail; `Run.review_iterations` counts corrective passes taken (UI label for the review stage is "Agent review brief").
 - The structured `Brief` fields (`highlights`, `executive_summary`, `sections`, `action_items`, `sources`) are the source of truth for the rendered UI — `BriefScreen.tsx` walks them directly. `Brief.raw_markdown` is a server-rendered export of the same structured data (via `render_brief_markdown()`), used for the `/api/runs/:id/export` endpoint and as a fallback when the structured fields are empty.
 
 ## Running the Project
